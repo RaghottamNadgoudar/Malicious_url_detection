@@ -11,28 +11,43 @@ import seaborn as sns
 import os
 
 from phase1_graph_traversal import RedirectGraphAnalyzer
-from phase2_pattern_matching import PatternMatcher
 from phase3_neural_classifier import extract_features, NeuralClassifier
 
 
-def load_data(data_path='../../merged_urls.csv', sample_size=None):
+def load_data(data_path=None, sample_size=None):
     """Load and optionally sample the dataset."""
-    print(f"Loading data from {data_path}...")
-    
-    if not os.path.exists(data_path):
-        print(f"Merged dataset not found. Using balanced_urls.csv...")
-        data_path = '../../balanced_urls.csv'
-    
-    df = pd.read_csv(data_path)
-    
+    import os
+    # Resolve paths relative to this script's location
+    script_dir = os.path.dirname(os.path.abspath(__file__))
+    data_dir = os.path.join(script_dir, '..', 'data')
+
+    candidates = [data_path] if data_path else []
+    candidates += [
+        os.path.join(data_dir, 'merged_urls.csv'),
+        os.path.join(data_dir, 'balanced_urls.csv'),
+    ]
+
+    df = None
+    for path in candidates:
+        if path and os.path.exists(path):
+            print(f"Loading data from {path}...")
+            df = pd.read_csv(path)
+            break
+
+    if df is None:
+        raise FileNotFoundError(
+            f"No dataset found. Tried: {candidates}\n"
+            "Place merged_urls.csv or balanced_urls.csv in the data/ directory."
+        )
+
     if sample_size and len(df) > sample_size:
         df = df.sample(sample_size, random_state=42)
-        print(f"Sampled {sample_size} URLs from {len(df)} total")
-    
+        print(f"Sampled {sample_size} URLs from dataset")
+
     print(f"✓ Loaded {len(df)} URLs")
-    print(f"  Benign: {len(df[df['result'] == 0])} ({len(df[df['result'] == 0])/len(df)*100:.1f}%)")
+    print(f"  Benign:    {len(df[df['result'] == 0])} ({len(df[df['result'] == 0])/len(df)*100:.1f}%)")
     print(f"  Malicious: {len(df[df['result'] == 1])} ({len(df[df['result'] == 1])/len(df)*100:.1f}%)")
-    
+
     return df
 
 
@@ -43,8 +58,7 @@ def extract_all_features(df, max_urls=None):
     # Initialize analyzers
     print("  Initializing analyzers...")
     graph_analyzer = RedirectGraphAnalyzer()
-    pattern_matcher = PatternMatcher()
-    
+
     # Build graph from sample
     print("  Building redirect graph...")
     sample_urls = df['url'].tolist()[:min(10000, len(df))]
@@ -70,13 +84,10 @@ def extract_all_features(df, max_urls=None):
         try:
             # Phase 1 analysis
             phase1_data = graph_analyzer.analyze_url(url)
-            
-            # Phase 2 analysis
-            phase2_data = pattern_matcher.analyze_url(url)
-            
-            # Extract features
-            features = extract_features(url, phase1_data, phase2_data)
-            
+
+            # Extract 25-dimensional features (no Phase 2 needed)
+            features = extract_features(url, phase1_data)
+
             features_list.append(features)
             labels.append(label)
         
