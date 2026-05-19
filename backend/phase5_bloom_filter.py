@@ -209,7 +209,7 @@ class LearnedBloomFilter:
             'lsh_similarity': lsh_similarity,
             'in_verified_blacklist': in_blacklist,
             'effective_score': effective_score,
-            'possibly_malicious': in_bloom or lsh_similarity > 0.7 or in_blacklist
+            'possibly_malicious': in_bloom or lsh_similarity > 0.92 or in_blacklist
         }
     
     def verify_with_constraints(self, url: str, url_data: Dict) -> bool:
