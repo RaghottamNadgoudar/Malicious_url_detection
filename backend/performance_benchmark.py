@@ -1,6 +1,8 @@
 """
 Performance Benchmarking Module
-Runs real-time performance tests on the detection pipeline
+Runs real-time performance tests on the detection pipeline.
+Phase 2 (Boyer-Moore pattern matching) has been removed;
+its slot now benchmarks the self-contained 25-feature extractor.
 """
 
 import time
@@ -8,12 +10,9 @@ import pandas as pd
 import numpy as np
 from typing import Dict, List, Tuple
 import os
-from collections import defaultdict
 
-# Import all phases
 from phase1_graph_traversal import RedirectGraphAnalyzer
-from phase2_pattern_matching import PatternMatcher
-from phase3_neural_classifier import NeuralClassifier
+from phase3_neural_classifier import NeuralClassifier, extract_features
 from phase4_greedy_optimization import GreedyOptimizer
 from phase5_bloom_filter import BloomFilterAnalyzer
 from phase6_heapsort_ranking import HeapsortRanker
@@ -22,407 +21,288 @@ from url_expander import URLExpander
 
 class PerformanceBenchmark:
     """Real-time performance benchmarking for all pipeline phases."""
-    
+
     def __init__(self):
         self.results = None
         self.last_benchmark_time = None
-        self.cache_duration = 300  # Cache results for 5 minutes
-        
+        self.cache_duration = 300  # 5-minute cache
+
     def should_run_benchmark(self) -> bool:
-        """Check if benchmark should be run (cache expired or first run)."""
-        if self.results is None:
+        if self.results is None or self.last_benchmark_time is None:
             return True
-        
-        if self.last_benchmark_time is None:
-            return True
-        
-        elapsed = time.time() - self.last_benchmark_time
-        return elapsed > self.cache_duration
-    
+        return (time.time() - self.last_benchmark_time) > self.cache_duration
+
+    # ------------------------------------------------------------------
     def load_test_urls(self, sample_size: int = 10000) -> Tuple[List[str], pd.DataFrame]:
         """Load test URLs from dataset."""
-        # Try to load dataset
-        for dataset_path in ['../data/merged_urls.csv', '../data/balanced_urls.csv']:
-            if os.path.exists(dataset_path):
-                df = pd.read_csv(dataset_path)
-                
-                # Sample URLs
-                if len(df) > sample_size:
-                    df_sample = df.sample(n=sample_size, random_state=42)
-                else:
-                    df_sample = df
-                
-                urls = df_sample['url'].tolist()
-                return urls, df_sample
-        
-        # Fallback: generate synthetic URLs for testing
-        print("⚠️  Dataset not found, using synthetic URLs for benchmark")
-        synthetic_urls = [
-            f"https://example{i}.com/path{i}" for i in range(min(sample_size, 1000))
-        ]
-        df_synthetic = pd.DataFrame({
-            'url': synthetic_urls,
-            'result': [0] * len(synthetic_urls)
-        })
-        return synthetic_urls, df_synthetic
-    
+        script_dir = os.path.dirname(os.path.abspath(__file__))
+        data_dir = os.path.join(script_dir, '..', 'data')
+
+        for name in ('merged_urls.csv', 'balanced_urls.csv'):
+            path = os.path.join(data_dir, name)
+            if os.path.exists(path):
+                df = pd.read_csv(path)
+                df_sample = df.sample(n=min(sample_size, len(df)), random_state=42)
+                return df_sample['url'].tolist(), df_sample
+
+        # Fallback synthetic data
+        print("⚠️  Dataset not found — using synthetic URLs for benchmark")
+        synthetic = [f"https://example{i}.com/path{i}" for i in range(min(sample_size, 1000))]
+        df_syn = pd.DataFrame({'url': synthetic, 'result': [0] * len(synthetic)})
+        return synthetic, df_syn
+
+    # ------------------------------------------------------------------
+    def _stats(self, times: List[float], baseline_ms: float) -> Dict:
+        arr = np.array(times)
+        return {
+            'avg_time_ms':    float(np.mean(arr)),
+            'median_time_ms': float(np.median(arr)),
+            'std_time_ms':    float(np.std(arr)),
+            'min_time_ms':    float(np.min(arr)),
+            'max_time_ms':    float(np.max(arr)),
+            'p95_time_ms':    float(np.percentile(arr, 95)) if len(arr) > 1 else float(np.mean(arr)),
+            'p99_time_ms':    float(np.percentile(arr, 99)) if len(arr) > 1 else float(np.mean(arr)),
+            'efficiency':     self._calculate_efficiency(float(np.mean(arr)), baseline_ms),
+            'samples':        len(times),
+        }
+
+    def _calculate_efficiency(self, avg_ms: float, baseline_ms: float) -> int:
+        if avg_ms <= 0:
+            return 100
+        return max(0, min(100, int(100 * baseline_ms / avg_ms)))
+
+    # ------------------------------------------------------------------
     def benchmark_phase1(self, urls: List[str], graph_analyzer: RedirectGraphAnalyzer) -> Dict:
-        """Benchmark Phase 1: Graph Traversal (BFS/DFS)."""
+        """Phase 1 — BFS/DFS Graph Traversal."""
         times = []
-        
-        for url in urls[:1000]:  # Test on 1000 URLs
-            start = time.perf_counter()
+        for url in urls[:1000]:
+            t0 = time.perf_counter()
             graph_analyzer.analyze_url(url)
-            end = time.perf_counter()
-            times.append((end - start) * 1000)  # Convert to ms
-        
+            times.append((time.perf_counter() - t0) * 1000)
         return {
             'name': 'BFS/DFS Graph Traversal',
             'unit': 'Unit II',
             'complexity': 'O(V + E)',
-            'avg_time_ms': np.mean(times),
-            'median_time_ms': np.median(times),
-            'std_time_ms': np.std(times),
-            'min_time_ms': np.min(times),
-            'max_time_ms': np.max(times),
-            'p95_time_ms': np.percentile(times, 95),
-            'p99_time_ms': np.percentile(times, 99),
-            'efficiency': self._calculate_efficiency(np.mean(times), 5.0),
-            'samples': len(times)
+            **self._stats(times, 5.0),
         }
-    
-    def benchmark_phase2(self, urls: List[str], pattern_matcher: PatternMatcher) -> Dict:
-        """Benchmark Phase 2: Boyer-Moore Pattern Matching."""
+
+    def benchmark_phase2(self, urls: List[str], neural_classifier: NeuralClassifier) -> Dict:
+        """
+        Phase 2 — 25-Feature Extraction (self-contained, replaces Boyer-Moore).
+        Benchmarks how fast the neural classifier extracts its feature vector.
+        """
         times = []
-        
         for url in urls[:1000]:
-            start = time.perf_counter()
-            pattern_matcher.analyze_url(url)
-            end = time.perf_counter()
-            times.append((end - start) * 1000)
-        
+            t0 = time.perf_counter()
+            extract_features(url)          # pure feature extraction, no inference
+            times.append((time.perf_counter() - t0) * 1000)
         return {
-            'name': 'Boyer-Moore Pattern Matching',
+            'name': '25-Feature Extraction (Neural)',
             'unit': 'Unit III',
-            'complexity': 'O(n/m)',
-            'avg_time_ms': np.mean(times),
-            'median_time_ms': np.median(times),
-            'std_time_ms': np.std(times),
-            'min_time_ms': np.min(times),
-            'max_time_ms': np.max(times),
-            'p95_time_ms': np.percentile(times, 95),
-            'p99_time_ms': np.percentile(times, 99),
-            'efficiency': self._calculate_efficiency(np.mean(times), 2.0),
-            'samples': len(times)
+            'complexity': 'O(n)',
+            **self._stats(times, 2.0),
+            'note': 'Replaces Boyer-Moore; keyword + homograph + brand signals built-in',
         }
-    
+
     def benchmark_phase3(self, urls: List[str], neural_classifier: NeuralClassifier,
-                        graph_analyzer: RedirectGraphAnalyzer, 
-                        pattern_matcher: PatternMatcher) -> Dict:
-        """Benchmark Phase 3: Neural Network Inference."""
+                         graph_analyzer: RedirectGraphAnalyzer) -> Dict:
+        """Phase 3 — Neural Network Inference."""
         times = []
-        
         for url in urls[:1000]:
-            phase1_result = graph_analyzer.analyze_url(url)
-            phase2_result = pattern_matcher.analyze_url(url)
-            
-            start = time.perf_counter()
-            neural_classifier.analyze_url(url, phase1_result, phase2_result)
-            end = time.perf_counter()
-            times.append((end - start) * 1000)
-        
+            phase1 = graph_analyzer.analyze_url(url)
+            t0 = time.perf_counter()
+            neural_classifier.analyze_url(url, phase1, None)
+            times.append((time.perf_counter() - t0) * 1000)
         return {
             'name': 'Neural Network Inference',
             'unit': 'Unit III',
             'complexity': 'O(1)',
-            'avg_time_ms': np.mean(times),
-            'median_time_ms': np.median(times),
-            'std_time_ms': np.std(times),
-            'min_time_ms': np.min(times),
-            'max_time_ms': np.max(times),
-            'p95_time_ms': np.percentile(times, 95),
-            'p99_time_ms': np.percentile(times, 99),
-            'efficiency': self._calculate_efficiency(np.mean(times), 1.5),
-            'samples': len(times)
+            **self._stats(times, 1.5),
         }
-    
+
     def benchmark_phase4(self, urls: List[str], greedy_optimizer: GreedyOptimizer,
-                        graph_analyzer: RedirectGraphAnalyzer) -> Dict:
-        """Benchmark Phase 4: Greedy Optimization (Dijkstra)."""
+                         graph_analyzer: RedirectGraphAnalyzer) -> Dict:
+        """Phase 4 — Dijkstra Shortest Path (Greedy Optimization)."""
         times = []
-        
-        for url in urls[:500]:  # Smaller sample for expensive operation
-            combined_data = {'url': url}
-            
-            start = time.perf_counter()
-            greedy_optimizer.analyze_url(url, combined_data, graph_analyzer.graph)
-            end = time.perf_counter()
-            times.append((end - start) * 1000)
-        
+        for url in urls[:500]:
+            t0 = time.perf_counter()
+            greedy_optimizer.analyze_url(url, {'url': url}, graph_analyzer.graph)
+            times.append((time.perf_counter() - t0) * 1000)
         return {
             'name': 'Dijkstra Shortest Path',
             'unit': 'Unit IV',
             'complexity': 'O((V + E) log V)',
-            'avg_time_ms': np.mean(times),
-            'median_time_ms': np.median(times),
-            'std_time_ms': np.std(times),
-            'min_time_ms': np.min(times),
-            'max_time_ms': np.max(times),
-            'p95_time_ms': np.percentile(times, 95),
-            'p99_time_ms': np.percentile(times, 99),
-            'efficiency': self._calculate_efficiency(np.mean(times), 5.0),
-            'samples': len(times)
+            **self._stats(times, 5.0),
         }
-    
+
     def benchmark_phase5(self, urls: List[str], bloom_analyzer: BloomFilterAnalyzer) -> Dict:
-        """Benchmark Phase 5: Bloom Filter Lookup."""
+        """Phase 5 — Bloom Filter Lookup."""
         times = []
-        
         for url in urls[:1000]:
-            combined_data = {'url': url}
-            
-            start = time.perf_counter()
-            bloom_analyzer.analyze_url(url, combined_data)
-            end = time.perf_counter()
-            times.append((end - start) * 1000)
-        
+            t0 = time.perf_counter()
+            bloom_analyzer.analyze_url(url, {})
+            times.append((time.perf_counter() - t0) * 1000)
         return {
             'name': 'Bloom Filter Lookup',
             'unit': 'Unit III',
             'complexity': 'O(k)',
-            'avg_time_ms': np.mean(times),
-            'median_time_ms': np.median(times),
-            'std_time_ms': np.std(times),
-            'min_time_ms': np.min(times),
-            'max_time_ms': np.max(times),
-            'p95_time_ms': np.percentile(times, 95),
-            'p99_time_ms': np.percentile(times, 99),
-            'efficiency': self._calculate_efficiency(np.mean(times), 0.5),
-            'samples': len(times)
+            **self._stats(times, 0.5),
         }
-    
+
     def benchmark_phase6(self, urls: List[str], heapsort_ranker: HeapsortRanker) -> Dict:
-        """Benchmark Phase 6: Heapsort Ranking."""
+        """Phase 6 — Heapsort Ranking."""
         times = []
-        
-        # Test batch ranking
-        batch_sizes = [10, 50, 100, 500]
-        
-        for batch_size in batch_sizes:
+        for batch_size in (10, 50, 100, 500):
             if batch_size > len(urls):
                 continue
-            
-            batch_urls = urls[:batch_size]
-            results = [{'url': url, 'threat_score': np.random.random()} for url in batch_urls]
-            
-            start = time.perf_counter()
-            heapsort_ranker.rank_batch(results, top_k=min(10, batch_size))
-            end = time.perf_counter()
-            times.append((end - start) * 1000)
-        
+            batch = [{'url': u, 'threat_score': np.random.random(),
+                      'threat_probability': np.random.random(), 'entropy': 3.5,
+                      'redirect_depth': 0} for u in urls[:batch_size]]
+            t0 = time.perf_counter()
+            heapsort_ranker.rank_batch(batch, top_k=min(10, batch_size))
+            times.append((time.perf_counter() - t0) * 1000)
         return {
             'name': 'Heapsort Ranking',
             'unit': 'Unit III',
             'complexity': 'O(n log n)',
-            'avg_time_ms': np.mean(times),
-            'median_time_ms': np.median(times),
-            'std_time_ms': np.std(times),
-            'min_time_ms': np.min(times),
-            'max_time_ms': np.max(times),
-            'p95_time_ms': np.percentile(times, 95) if len(times) > 1 else np.mean(times),
-            'p99_time_ms': np.percentile(times, 99) if len(times) > 1 else np.mean(times),
-            'efficiency': self._calculate_efficiency(np.mean(times), 6.0),
-            'samples': len(times),
-            'note': f'Tested on batch sizes: {batch_sizes[:len(times)]}'
+            **self._stats(times, 6.0),
+            'note': 'Tested on batch sizes: 10, 50, 100, 500',
         }
-    
+
     def benchmark_phase7(self, urls: List[str], greedy_optimizer: GreedyOptimizer,
-                        graph_analyzer: RedirectGraphAnalyzer) -> Dict:
-        """Benchmark Phase 7: BFS Transitive Closure."""
-        times = []
-        
-        # Build a small graph for testing
-        test_graph = {url: [] for url in urls[:100]}
-        
-        start = time.perf_counter()
+                         graph_analyzer: RedirectGraphAnalyzer) -> Dict:
+        """Phase 7 — BFS Transitive Closure."""
+        test_graph = {u: [] for u in urls[:100]}
+        t0 = time.perf_counter()
         greedy_optimizer.build_transitive_closure(test_graph)
-        end = time.perf_counter()
-        times.append((end - start) * 1000)
-        
+        elapsed = (time.perf_counter() - t0) * 1000
         return {
             'name': 'BFS Transitive Closure',
             'unit': 'Unit IV',
             'complexity': 'O(V·E)',
-            'avg_time_ms': np.mean(times),
-            'median_time_ms': np.median(times),
-            'std_time_ms': 0.0,
-            'min_time_ms': np.min(times),
-            'max_time_ms': np.max(times),
-            'p95_time_ms': np.mean(times),
-            'p99_time_ms': np.mean(times),
-            'efficiency': self._calculate_efficiency(np.mean(times), 10.0),
-            'samples': len(times),
-            'note': 'Optimized replacement for Warshall O(V³)'
+            **self._stats([elapsed], 10.0),
+            'note': 'Optimised replacement for Warshall O(V³)',
         }
-    
+
     def benchmark_url_expander(self, urls: List[str], url_expander: URLExpander) -> Dict:
-        """Benchmark URL Expansion (Phase 0)."""
+        """Phase 0 — URL Expansion."""
         times = []
-        
-        # Test only on a small sample (network operations are slow)
         for url in urls[:50]:
-            start = time.perf_counter()
+            t0 = time.perf_counter()
             url_expander.expand(url, use_cache=False)
-            end = time.perf_counter()
-            times.append((end - start) * 1000)
-        
+            times.append((time.perf_counter() - t0) * 1000)
         return {
             'name': 'URL Expansion (Shorteners)',
             'unit': 'Unit II',
             'complexity': 'O(k) network calls',
-            'avg_time_ms': np.mean(times),
-            'median_time_ms': np.median(times),
-            'std_time_ms': np.std(times),
-            'min_time_ms': np.min(times),
-            'max_time_ms': np.max(times),
-            'p95_time_ms': np.percentile(times, 95),
-            'p99_time_ms': np.percentile(times, 99),
-            'efficiency': self._calculate_efficiency(np.mean(times), 100.0),
-            'samples': len(times),
-            'note': 'Only runs for shortened URLs'
+            **self._stats(times, 100.0),
+            'note': 'Only runs for shortened URLs',
         }
-    
-    def benchmark_full_pipeline(self, urls: List[str], 
+
+    def benchmark_full_pipeline(self, urls: List[str],
                                 graph_analyzer: RedirectGraphAnalyzer,
-                                pattern_matcher: PatternMatcher,
                                 neural_classifier: NeuralClassifier,
                                 greedy_optimizer: GreedyOptimizer,
                                 bloom_analyzer: BloomFilterAnalyzer,
                                 heapsort_ranker: HeapsortRanker) -> Dict:
-        """Benchmark the complete end-to-end pipeline."""
+        """End-to-end pipeline benchmark (no pattern matching)."""
         times = []
-        
-        for url in urls[:500]:  # Test on 500 URLs
-            start = time.perf_counter()
-            
-            # Full pipeline
-            phase1_result = graph_analyzer.analyze_url(url)
-            phase2_result = pattern_matcher.analyze_url(url)
-            phase3_result = neural_classifier.analyze_url(url, phase1_result, phase2_result)
-            combined_data = {**phase1_result, **phase2_result, **phase3_result}
-            greedy_optimizer.analyze_url(url, combined_data, graph_analyzer.graph)
-            bloom_analyzer.analyze_url(url, combined_data)
-            heapsort_ranker.analyze_url(url, combined_data)
-            
-            end = time.perf_counter()
-            times.append((end - start) * 1000)
-        
-        avg_time = np.mean(times)
-        throughput = 1000.0 / avg_time if avg_time > 0 else 0
-        
+        for url in urls[:500]:
+            t0 = time.perf_counter()
+            p1 = graph_analyzer.analyze_url(url)
+            p3 = neural_classifier.analyze_url(url, p1, None)
+            combined = {**p1, **p3}
+            greedy_optimizer.analyze_url(url, combined, graph_analyzer.graph)
+            bloom_analyzer.analyze_url(url, combined)
+            heapsort_ranker.analyze_url(url, combined)
+            times.append((time.perf_counter() - t0) * 1000)
+
+        arr = np.array(times)
+        avg = float(np.mean(arr))
         return {
-            'avg_time_ms': avg_time,
-            'median_time_ms': np.median(times),
-            'std_time_ms': np.std(times),
-            'min_time_ms': np.min(times),
-            'max_time_ms': np.max(times),
-            'p95_time_ms': np.percentile(times, 95),
-            'p99_time_ms': np.percentile(times, 99),
-            'throughput_urls_per_sec': throughput,
-            'samples': len(times)
+            'avg_time_ms':          avg,
+            'median_time_ms':       float(np.median(arr)),
+            'std_time_ms':          float(np.std(arr)),
+            'min_time_ms':          float(np.min(arr)),
+            'max_time_ms':          float(np.max(arr)),
+            'p95_time_ms':          float(np.percentile(arr, 95)),
+            'p99_time_ms':          float(np.percentile(arr, 99)),
+            'throughput_urls_per_sec': 1000.0 / avg if avg > 0 else 0,
+            'samples':              len(times),
         }
-    
-    def _calculate_efficiency(self, avg_time_ms: float, baseline_ms: float) -> int:
-        """Calculate efficiency score (0-100) based on performance vs baseline."""
-        if avg_time_ms <= 0:
-            return 100
-        
-        # Efficiency = 100 * (baseline / actual_time)
-        # Capped at 100
-        efficiency = min(100, int(100 * (baseline_ms / avg_time_ms)))
-        return max(0, efficiency)
-    
-    def run_full_benchmark(self, 
-                          graph_analyzer: RedirectGraphAnalyzer,
-                          pattern_matcher: PatternMatcher,
-                          neural_classifier: NeuralClassifier,
-                          greedy_optimizer: GreedyOptimizer,
-                          bloom_analyzer: BloomFilterAnalyzer,
-                          heapsort_ranker: HeapsortRanker,
-                          url_expander: URLExpander,
-                          sample_size: int = 10000) -> Dict:
+
+    # ------------------------------------------------------------------
+    def run_full_benchmark(self,
+                           graph_analyzer: RedirectGraphAnalyzer,
+                           pattern_matcher,            # kept for API compat, ignored
+                           neural_classifier: NeuralClassifier,
+                           greedy_optimizer: GreedyOptimizer,
+                           bloom_analyzer: BloomFilterAnalyzer,
+                           heapsort_ranker: HeapsortRanker,
+                           url_expander: URLExpander,
+                           sample_size: int = 10000) -> Dict:
         """Run complete benchmark suite."""
-        
+
         print(f"\n{'='*60}")
         print("🔬 Running Performance Benchmark")
         print(f"{'='*60}")
-        
-        # Load test URLs
-        print(f"📊 Loading {sample_size:,} test URLs...")
-        urls, df = self.load_test_urls(sample_size)
+
+        urls, _ = self.load_test_urls(sample_size)
         print(f"✓ Loaded {len(urls):,} URLs")
-        
+
         results = {
             'algorithms': [],
-            'timestamp': time.time(),
-            'sample_size': len(urls)
+            'timestamp':  time.time(),
+            'sample_size': len(urls),
         }
-        
-        # Benchmark each phase
+
         print("\n🧪 Benchmarking individual phases...")
-        
-        print("  Phase 1: Graph Traversal (BFS/DFS)...")
+
+        print("  Phase 1: BFS/DFS Graph Traversal...")
         results['algorithms'].append(self.benchmark_phase1(urls, graph_analyzer))
-        
-        print("  Phase 2: Pattern Matching (Boyer-Moore)...")
-        results['algorithms'].append(self.benchmark_phase2(urls, pattern_matcher))
-        
-        print("  Phase 3: Neural Network...")
-        results['algorithms'].append(self.benchmark_phase3(urls, neural_classifier, 
-                                                          graph_analyzer, pattern_matcher))
-        
-        print("  Phase 4: Greedy Optimization (Dijkstra)...")
-        results['algorithms'].append(self.benchmark_phase4(urls, greedy_optimizer, 
-                                                          graph_analyzer))
-        
-        print("  Phase 5: Bloom Filter...")
+
+        print("  Phase 2: 25-Feature Extraction (neural, self-contained)...")
+        results['algorithms'].append(self.benchmark_phase2(urls, neural_classifier))
+
+        print("  Phase 3: Neural Network Inference...")
+        results['algorithms'].append(self.benchmark_phase3(urls, neural_classifier, graph_analyzer))
+
+        print("  Phase 4: Dijkstra / Greedy Optimization...")
+        results['algorithms'].append(self.benchmark_phase4(urls, greedy_optimizer, graph_analyzer))
+
+        print("  Phase 5: Bloom Filter Lookup...")
         results['algorithms'].append(self.benchmark_phase5(urls, bloom_analyzer))
-        
+
         print("  Phase 6: Heapsort Ranking...")
         results['algorithms'].append(self.benchmark_phase6(urls, heapsort_ranker))
-        
-        print("  Phase 7: Transitive Closure (BFS)...")
-        results['algorithms'].append(self.benchmark_phase7(urls, greedy_optimizer, 
-                                                          graph_analyzer))
-        
+
+        print("  Phase 7: BFS Transitive Closure...")
+        results['algorithms'].append(self.benchmark_phase7(urls, greedy_optimizer, graph_analyzer))
+
         print("  Phase 0: URL Expansion...")
         results['algorithms'].append(self.benchmark_url_expander(urls, url_expander))
-        
-        # Benchmark full pipeline
+
         print("\n🚀 Benchmarking full pipeline...")
-        pipeline_stats = self.benchmark_full_pipeline(
-            urls, graph_analyzer, pattern_matcher, neural_classifier,
-            greedy_optimizer, bloom_analyzer, heapsort_ranker
+        pipeline = self.benchmark_full_pipeline(
+            urls, graph_analyzer, neural_classifier,
+            greedy_optimizer, bloom_analyzer, heapsort_ranker,
         )
-        
-        results['overall_pipeline_time_ms'] = pipeline_stats['avg_time_ms']
-        results['pipeline_median_ms'] = pipeline_stats['median_time_ms']
-        results['pipeline_p95_ms'] = pipeline_stats['p95_time_ms']
-        results['pipeline_p99_ms'] = pipeline_stats['p99_time_ms']
-        results['throughput_urls_per_sec'] = pipeline_stats['throughput_urls_per_sec']
-        results['pipeline_samples'] = pipeline_stats['samples']
-        
+
+        results['overall_pipeline_time_ms']  = pipeline['avg_time_ms']
+        results['pipeline_median_ms']        = pipeline['median_time_ms']
+        results['pipeline_p95_ms']           = pipeline['p95_time_ms']
+        results['pipeline_p99_ms']           = pipeline['p99_time_ms']
+        results['throughput_urls_per_sec']   = pipeline['throughput_urls_per_sec']
+        results['pipeline_samples']          = pipeline['samples']
+
         print(f"\n✓ Benchmark complete!")
-        print(f"  Average pipeline time: {pipeline_stats['avg_time_ms']:.2f}ms")
-        print(f"  Throughput: {pipeline_stats['throughput_urls_per_sec']:.1f} URLs/sec")
+        print(f"  Avg pipeline: {pipeline['avg_time_ms']:.2f} ms")
+        print(f"  Throughput:   {pipeline['throughput_urls_per_sec']:.1f} URLs/sec")
         print(f"{'='*60}\n")
-        
-        # Cache results
+
         self.results = results
         self.last_benchmark_time = time.time()
-        
         return results
-    
+
     def get_cached_results(self) -> Dict:
-        """Get cached benchmark results."""
         return self.results
