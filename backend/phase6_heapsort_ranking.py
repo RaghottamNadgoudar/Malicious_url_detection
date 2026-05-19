@@ -184,23 +184,19 @@ class ThreatRanker:
     
     def calculate_threat_rank(self, url_data: Dict) -> float:
         """
-        Calculate composite threat rank.
-        
-        threat_rank = w1×phishing_prob + w2×entropy + w3×redirect_depth + w4×pattern_score
+        Composite threat rank driven by neural probability.
+        threat_rank = 0.45×neural_prob + 0.25×entropy + 0.20×redirect + 0.10×keyword
         """
-        phishing_prob = url_data.get('threat_probability', 0.5)
-        entropy = url_data.get('entropy', 3.0) / 5.0  # Normalize to [0,1]
-        redirect_depth = min(url_data.get('redirect_depth', 0) / 10.0, 1.0)  # Normalize
-        pattern_score = url_data.get('pattern_score', 0.0)
-        
-        threat_rank = (
-            self.weights['phishing_prob'] * phishing_prob +
-            self.weights['entropy'] * entropy +
-            self.weights['redirect_depth'] * redirect_depth +
-            self.weights['pattern_score'] * pattern_score
-        )
-        
-        return threat_rank
+        neural_prob    = url_data.get('threat_probability', 0.5)
+        entropy        = url_data.get('entropy', 3.0) / 5.0          # normalise to [0,1]
+        redirect_depth = min(url_data.get('redirect_depth', 0) / 10.0, 1.0)
+        # keyword_score is now a feature inside Phase 3; fall back to 0 gracefully
+        keyword_score  = url_data.get('keyword_score', 0.0)
+
+        return (0.45 * neural_prob +
+                0.25 * entropy +
+                0.20 * redirect_depth +
+                0.10 * keyword_score)
     
     def check_entropy_anomaly(self, url: str) -> Dict:
         """
