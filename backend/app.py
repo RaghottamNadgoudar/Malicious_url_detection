@@ -10,9 +10,8 @@ import os
 import time
 from typing import Dict, List
 
-# Import all phases
+# Import all phases (Phase 2 pattern matching removed — signals built into Phase 3)
 from phase1_graph_traversal import RedirectGraphAnalyzer
-from phase2_pattern_matching import PatternMatcher
 from phase3_neural_classifier import NeuralClassifier
 from phase4_greedy_optimization import GreedyOptimizer
 from phase5_bloom_filter import BloomFilterAnalyzer
@@ -25,7 +24,6 @@ CORS(app)
 
 # Global analyzers
 graph_analyzer = RedirectGraphAnalyzer()
-pattern_matcher = PatternMatcher()
 neural_classifier = NeuralClassifier()
 greedy_optimizer = GreedyOptimizer()
 bloom_analyzer = BloomFilterAnalyzer()
@@ -123,45 +121,76 @@ def analyze_url():
     try:
         # PHASE 0: URL Expansion (if shortened)
         expansion_result = url_expander.expand(url)
-        analysis_url = expansion_result['final_url']  # Analyze the final destination
-        
-        # PHASE 1: Graph Traversal
-        phase1_result = graph_analyzer.analyze_url(analysis_url)
-        
-        # PHASE 2: Pattern Matching
-        phase2_result = pattern_matcher.analyze_url(analysis_url)
-        
-        # PHASE 3: Neural Classification
-        phase3_result = neural_classifier.analyze_url(analysis_url, phase1_result, phase2_result)
-        
+        is_shortened = expansion_result.get('is_shortened', False)
+        final_url = expansion_result.get('final_url', url)
+
+        # --- Analyse original URL ---
+        p1_orig = graph_analyzer.analyze_url(url)
+        p3_orig = neural_classifier.analyze_url(url, p1_orig, None)
+
+        if is_shortened and final_url != url:
+            # --- Analyse expanded destination ---
+            p1_exp = graph_analyzer.analyze_url(final_url)
+            p3_exp = neural_classifier.analyze_url(final_url, p1_exp, None)
+
+            # Blend: expanded destination (65%) + original path signals (35%)
+            # The destination is what the user actually visits, so it dominates.
+            # Keywords in a shortener path add suspicion but don't decide the verdict.
+            orig_prob = p3_orig['threat_probability']
+            exp_prob  = p3_exp['threat_probability']
+            blended   = 0.35 * orig_prob + 0.65 * exp_prob
+
+            # Use the expanded result as base, but override probability with blend
+            phase3_result = dict(p3_exp)
+            phase3_result['threat_probability'] = blended
+            phase3_result['original_prob'] = orig_prob
+            phase3_result['expanded_prob'] = exp_prob
+
+            # Re-classify verdict based on blended probability
+            if blended < 0.25:
+                phase3_result['verdict'] = 'safe'
+            elif blended > 0.60:
+                phase3_result['verdict'] = 'malicious'
+            elif blended > 0.40:
+                phase3_result['verdict'] = 'suspicious'
+            else:
+                phase3_result['verdict'] = 'uncertain'
+
+            phase1_result = p1_exp
+            analysis_url  = final_url
+        else:
+            phase3_result = p3_orig
+            phase1_result = p1_orig
+            analysis_url  = url
+
         # PHASE 4: Greedy Optimization
-        combined_data = {**phase1_result, **phase2_result, **phase3_result}
+        combined_data = {**phase1_result, **phase3_result}
         phase4_result = greedy_optimizer.analyze_url(analysis_url, combined_data, graph_analyzer.graph)
-        
+
         # PHASE 5: Bloom Filter
         phase5_result = bloom_analyzer.analyze_url(analysis_url, combined_data)
-        
+
         # PHASE 6: Heapsort Ranking
         phase6_result = heapsort_ranker.analyze_url(analysis_url, combined_data)
-        
-        # Combine all results
+
         final_result = {
             'url': url,
-            'url_expansion': expansion_result,  # Include expansion info
-            'analyzed_url': analysis_url,  # Show what was actually analyzed
+            'url_expansion': expansion_result,
+            'analyzed_url': analysis_url,
             'phase1_graph': phase1_result,
-            'phase2_pattern': phase2_result,
             'phase3_neural': phase3_result,
             'phase4_greedy': phase4_result,
             'phase5_bloom': phase5_result,
             'phase6_ranking': phase6_result,
-            'final_verdict': determine_final_verdict(phase3_result, phase5_result, phase6_result, expansion_result)
+            'final_verdict': determine_final_verdict(phase3_result, phase5_result,
+                                                     phase6_result, expansion_result),
         }
-        
+
         return jsonify(final_result)
-    
+
     except Exception as e:
         return jsonify({'error': str(e)}), 500
+
 
 
 @app.route('/api/batch-analyze', methods=['POST'])
@@ -178,30 +207,25 @@ def batch_analyze():
     
     try:
         results = []
-        
+
         for url in urls:
-            # Quick analysis through key phases
             phase1_result = graph_analyzer.analyze_url(url)
-            phase2_result = pattern_matcher.analyze_url(url)
-            phase3_result = neural_classifier.analyze_url(url, phase1_result, phase2_result)
-            
+            phase3_result = neural_classifier.analyze_url(url, phase1_result, None)
+
             combined_data = {
                 'url': url,
                 **phase1_result,
-                **phase2_result,
-                **phase3_result
+                **phase3_result,
             }
-            
             results.append(combined_data)
-        
-        # Rank using heapsort
+
         ranked_results = heapsort_ranker.rank_batch(results, top_k)
-        
+
         return jsonify({
             'total_analyzed': len(urls),
-            'top_threats': ranked_results
+            'top_threats': ranked_results,
         })
-    
+
     except Exception as e:
         return jsonify({'error': str(e)}), 500
 
@@ -330,7 +354,7 @@ def analytics_performance():
             # Run benchmark in background (or return cached if available)
             results = performance_benchmark.run_full_benchmark(
                 graph_analyzer=graph_analyzer,
-                pattern_matcher=pattern_matcher,
+                pattern_matcher=None,
                 neural_classifier=neural_classifier,
                 greedy_optimizer=greedy_optimizer,
                 bloom_analyzer=bloom_analyzer,
@@ -376,7 +400,7 @@ def refresh_performance_benchmark():
         
         results = performance_benchmark.run_full_benchmark(
             graph_analyzer=graph_analyzer,
-            pattern_matcher=pattern_matcher,
+            pattern_matcher=None,
             neural_classifier=neural_classifier,
             greedy_optimizer=greedy_optimizer,
             bloom_analyzer=bloom_analyzer,
@@ -414,13 +438,17 @@ def determine_final_verdict(phase3_result: Dict, phase5_result: Dict, phase6_res
     
     # Check for whitelisted domain
     if phase3_result.get('reason', '').startswith('Whitelisted'):
+        if is_shortened:
+            rec = 'Shortener resolves to a trusted destination. Safe to proceed.'
+        else:
+            rec = 'Allow. Trusted domain.'
         return {
             'verdict': 'safe',
             'confidence': 'high',
             'threat_probability': threat_prob,
             'threat_rank': threat_rank,
-            'recommendation': 'Allow. Whitelisted domain.',
-            'reason': phase3_result.get('reason')
+            'recommendation': rec,
+            'reason': 'Destination is a trusted domain'
         }
     
     # Adjust threat probability for shortened URLs (but not too much)
@@ -434,15 +462,15 @@ def determine_final_verdict(phase3_result: Dict, phase5_result: Dict, phase6_res
     
     # Decision logic - more conservative thresholds
     if threat_prob < 0.25:
-        # Very low threat
+        # Very low threat — always safe regardless of bloom
         verdict = 'safe'
         confidence = 'high'
     elif bloom_verdict == 'malicious' or threat_prob > 0.75:
         # Definite malicious
         verdict = 'malicious'
         confidence = 'high'
-    elif threat_prob > 0.55 or bloom_verdict == 'suspicious':
-        # Moderately suspicious
+    elif threat_prob > 0.55 or (bloom_verdict == 'suspicious' and threat_prob > 0.35):
+        # Moderately suspicious (bloom 'suspicious' only matters if neural score agrees)
         verdict = 'suspicious'
         confidence = 'medium'
     elif threat_prob > 0.35:
@@ -471,6 +499,7 @@ def determine_final_verdict(phase3_result: Dict, phase5_result: Dict, phase6_res
 
 def get_recommendation(verdict: str, is_shortened: bool = False) -> str:
     """Get action recommendation based on verdict."""
+    shortener_note = ' Verify the destination before proceeding.' if is_shortened else ''
     recommendations = {
         'malicious': 'Block immediately. Add to blacklist.',
         'suspicious': 'Flag for manual review. Monitor activity.' + (' URL shortener detected - verify destination.' if is_shortened else ''),
