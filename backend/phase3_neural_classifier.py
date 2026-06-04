@@ -487,7 +487,8 @@ class DeepNeuralClassifier:
         if features.ndim == 1:
             features = features.reshape(1, -1)
         norm = self._normalize(features)
-        return float(self.model.predict(norm, verbose=0)[0][0])
+        # Use direct callable instead of model.predict to bypass Keras overhead for single predictions
+        return float(self.model(norm, training=False)[0][0])
 
     def _normalize(self, X: np.ndarray) -> np.ndarray:
         if self.feature_stats is None:
