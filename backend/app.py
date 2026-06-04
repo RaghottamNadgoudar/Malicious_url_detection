@@ -1,7 +1,8 @@
-"""
-Main Flask Application - Hybrid URL Detection System
-Integrates all 7 phases of the detection pipeline
-"""
+import sys
+if hasattr(sys.stdout, 'reconfigure'):
+    sys.stdout.reconfigure(encoding='utf-8')
+if hasattr(sys.stderr, 'reconfigure'):
+    sys.stderr.reconfigure(encoding='utf-8')
 
 from flask import Flask, request, jsonify
 from flask_cors import CORS
