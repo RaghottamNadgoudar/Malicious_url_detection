@@ -38,7 +38,7 @@ def is_shortened_url(url: str) -> bool:
         return False
 
 
-def expand_url(url: str, max_redirects: int = 10, timeout: int = 5) -> Dict:
+def expand_url(url: str, max_redirects: int = 10, timeout: int = 10) -> Dict:
     """
     Expand a shortened URL to its final destination.
     
@@ -61,55 +61,73 @@ def expand_url(url: str, max_redirects: int = 10, timeout: int = 5) -> Dict:
         'status_codes': []
     }
     
-    # If not a shortened URL, return as-is
-    if not result['is_shortened']:
-        result['expansion_successful'] = True
-        return result
-    
     try:
-        # Follow redirects manually to capture the chain
         current_url = url
-        session = requests.Session()
-        session.max_redirects = max_redirects
         
         for i in range(max_redirects):
-            try:
-                # Make HEAD request first (faster, no body download)
-                response = session.head(
-                    current_url,
-                    allow_redirects=False,
-                    timeout=timeout,
-                    headers={
-                        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36'
-                    }
-                )
+            response = None
+            last_err = None
+            
+            # If HTTPS request fails or times out, try HTTP fallback as plain HTTP
+            # frequently bypasses proxy/SSL decryption filters or SSL handshaking limits.
+            urls_to_try = [current_url]
+            if current_url.startswith('https://'):
+                urls_to_try.append(current_url.replace('https://', 'http://', 1))
                 
-                result['status_codes'].append(response.status_code)
-                
-                # Check for redirect
-                if response.status_code in [301, 302, 303, 307, 308]:
-                    next_url = response.headers.get('Location')
-                    
-                    if not next_url:
-                        break
-                    
-                    # Handle relative URLs
-                    if not next_url.startswith('http'):
-                        from urllib.parse import urljoin
-                        next_url = urljoin(current_url, next_url)
-                    
-                    result['redirect_chain'].append(next_url)
-                    result['redirect_count'] += 1
-                    current_url = next_url
-                    
-                    # Small delay to be respectful
-                    time.sleep(0.1)
-                else:
-                    # No more redirects
+            for test_url in urls_to_try:
+                # Retry loop (up to 2 attempts per URL)
+                for attempt in range(2):
+                    try:
+                        # Use requests.get directly with 'Connection': 'close' to disable connection keep-alive pooling,
+                        # which avoids server connection-based rate limiting/throttling. Use stream=True to avoid body download.
+                        response = requests.get(
+                            test_url,
+                            allow_redirects=False,
+                            timeout=timeout,
+                            stream=True,
+                            headers={
+                                'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+                                'Connection': 'close'
+                            }
+                        )
+                        if response.status_code < 500:
+                            break
+                    except requests.RequestException as e:
+                        last_err = e
+                        if attempt == 0:
+                            time.sleep(0.5) # small delay before retry
+                            
+                # If we got a successful response (redirect or ok), we break the fallback loop
+                if response is not None and response.status_code < 500:
+                    current_url = test_url
                     break
-                    
-            except requests.RequestException as e:
-                result['error'] = f"Request failed at redirect {i}: {str(e)}"
+            
+            if response is None:
+                result['error'] = f"Request failed at redirect {i}: {str(last_err)}"
+                break
+                
+            result['status_codes'].append(response.status_code)
+            
+            # Check for redirect
+            if response.status_code in [301, 302, 303, 307, 308]:
+                next_url = response.headers.get('Location')
+                
+                if not next_url:
+                    break
+                
+                # Handle relative URLs
+                if not next_url.startswith('http'):
+                    from urllib.parse import urljoin
+                    next_url = urljoin(current_url, next_url)
+                
+                result['redirect_chain'].append(next_url)
+                result['redirect_count'] += 1
+                current_url = next_url
+                
+                # Small delay to be respectful
+                time.sleep(0.1)
+            else:
+                # No more redirects
                 break
         
         # Set final URL
