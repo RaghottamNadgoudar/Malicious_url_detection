@@ -1,84 +1,56 @@
-flowchart TD
-
-    %% COLUMN 1: Initial Processing
-    subgraph Col1 [ ]
+flowchart LR
+    subgraph Col1 ["⬛ Column 1: URL Resolution"]
         direction TB
-        A([Input URL])
-        B{URL Shortened?}
-        C["Phase 0<br/>HTTP Redirect Follower<br/>(HEAD Requests)"]
-        D["Resolved Target URL<br/>Redirect Chain Logged"]
-        E["Phase 1: Graph Analysis<br/>BFS/DFS Traversal<br/>Shannon Entropy Calculation"]
-        F{Entropy < 3.0?}
-
-        A --> B
-        B -- Yes --> C
-        B -- No --> D
+        A([Input URL]) --> B{URL Shortened?}
+        B -->|Yes| C["Phase 0<br/>HTTP Redirect Follower<br/>(HEAD Requests)"]
+        B -->|No| D["Resolved Target URL<br/>Redirect Chain Logged"]
         C --> D
-        D --> E
-        E --> F
+        D --> E["Phase 1: Graph Traversal<br/>BFS/DFS & Shannon Entropy"]
+        E --> F{Entropy < 3.0?}
+        F -->|Yes| G["Fast-Track: Prune Path<br/>(Low Suspicion)"]
     end
 
-    %% COLUMN 2: Deep Analysis Pipeline
-    subgraph Col2 [ ]
+    subgraph Col2 ["⬛ Column 2: Threat Analysis"]
         direction TB
-        H["Topological Sort<br/>(Kahn's Algorithm)"]
-        I["Adversarial Normalization<br/>Percent Decode<br/>Leetspeak Mapping<br/>Hyphen Removal"]
-        J["Phase 2: Pattern Matching<br/>Boyer-Moore<br/>Horspool Search"]
-        K["Feature Extraction<br/>15-Feature Vector"]
-        L["Phase 3: Deep Neural Network<br/>15 → 64 → 32 → 1"]
-        M["Phase 4: Dijkstra Shortest Path<br/>Threat Tracing"]
-        G["Prune Path<br/>Low Suspicion"]
-
-        H --> I
-        I --> J
-        J --> K
-        K --> L
-        L --> M
-        
-        %% Invisible link to push G to the bottom of the column for clean routing
-        M ~~~ G 
+        H["Topological Sort<br/>(Kahn's Algorithm)"] --> I["Adversarial Normalization<br/>Percent Decode · Leetspeak"]
+        I --> J["Phase 2: Pattern Matching<br/>Boyer-Moore / Horspool"]
+        J --> K["Feature Extraction<br/>15-Feature Vector"]
+        K --> L["Phase 3: Deep Neural Network<br/>15 → 64 → 32 → 1"]
+        L --> M["Phase 4: Dijkstra Shortest Path<br/>Threat Tracing"]
     end
 
-    %% COLUMN 3: Verification & Verdict
-    subgraph Col3 [ ]
+    subgraph Col3 ["⬛ Column 3: Verification & Verdict"]
         direction TB
-        N["Phase 5: Bloom Filter + LSH<br/>MurmurHash3 & MinHash"]
-        O["Phase 6: Heapsort + Huffman Coding<br/>Threat Ranking & Baselining"]
-        P["Phase 7: Transitive Closure<br/>Reachability Analysis"]
-        Q["Score Blender<br/>Neural Probability<br/>Whitelist Check<br/>Redirect Signals"]
-        
-        R([SAFE])
-        S([SUSPICIOUS])
-        T([MALICIOUS])
-
-        N --> O
-        O --> P
-        P --> Q
-        
-        Q -- Threat < 25% --> R
-        Q -- 25%–75% --> S
-        Q -- >75% or Bloom Match --> T
+        N["Phase 5: Bloom Filter + LSH<br/>MurmurHash3 & MinHash"] --> O["Phase 6: Heapsort + Huffman<br/>Threat Ranking & Baselining"]
+        O --> P["Phase 7: Transitive Closure<br/>Reachability Analysis (BFS)"]
+        P --> Q["Score Blender<br/>Neural Prob · Whitelist · Redirects"]
+        Q -->|Threat < 25%| R([✅ SAFE])
+        Q -->|25%–75%| S([⚠️ SUSPICIOUS])
+        Q -->|> 75% or Bloom Match| T([🚫 MALICIOUS])
     end
 
-    %% CROSS-COLUMN CONNECTIONS
-    F -- No --> H
-    M --> N
-    
-    %% The "Fast-Track" Pruned Route running along the bottom
-    F -- Yes --> G
-    G --> Q
+    %% Inter-column connections
+    Col1 --> Col2
+    Col2 --> Col3
 
-    %% STYLING
-    %% Make the subgraph boxes invisible to create a seamless 3-column layout
-    style Col1 fill:none,stroke:none
-    style Col2 fill:none,stroke:none
-    style Col3 fill:none,stroke:none
+    %% Fast-track bypass
+    G --> Col3
 
-    classDef start fill:#ECEFF1,stroke:#37474F,stroke-width:2px;
-    classDef process fill:#E3F2FD,stroke:#1E88E5,stroke-width:1.5px;
-    classDef decision fill:#FFFDE7,stroke:#FBC02D,stroke-width:1.5px;
-    classDef output fill:#E8F5E9,stroke:#43A047,stroke-width:2px;
+    %% Styling
+    style Col1 fill:#E8EAF6,stroke:#3F51B5,stroke-width:1.5px
+    style Col2 fill:#E3F2FD,stroke:#1E88E5,stroke-width:1.5px
+    style Col3 fill:#F3E5F5,stroke:#8E24AA,stroke-width:1.5px
 
-    class A,R,S,T start;
-    class B,F decision;
-    class C,D,E,G,H,I,J,K,L,M,N,O,P,Q process;
+    classDef start fill:#ECEFF1,stroke:#37474F,stroke-width:2px
+    classDef process fill:#E3F2FD,stroke:#1E88E5,stroke-width:1.5px
+    classDef decision fill:#FFFDE7,stroke:#FBC02D,stroke-width:1.5px
+    classDef safe fill:#E8F5E9,stroke:#43A047,stroke-width:2px
+    classDef suspicious fill:#FFF8E1,stroke:#FFA000,stroke-width:2px
+    classDef malicious fill:#FFEBEE,stroke:#E53935,stroke-width:2px
+
+    class A start
+    class B,F decision
+    class C,D,E,G,H,I,J,K,L,M,N,O,P,Q process
+    class R safe
+    class S suspicious
+    class T malicious
