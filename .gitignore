@@ -134,3 +134,7 @@ result/
 *.zip
 *.tar.gz
 *.rar
+
+# Research papers
+papers/
+
