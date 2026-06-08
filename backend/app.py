@@ -21,7 +21,16 @@ from url_expander import URLExpander
 from performance_benchmark import PerformanceBenchmark
 
 app = Flask(__name__)
-CORS(app)
+# Allow the React frontend, Chrome extension popup, and any localhost port
+CORS(app, resources={r"/api/*": {"origins": [
+    "http://localhost:5173",
+    "http://localhost:3000",
+    "http://localhost:5000",
+    "http://127.0.0.1:5173",
+    "http://127.0.0.1:3000",
+    "chrome-extension://*",  # URL Shield Chrome extension
+    "*",                     # fallback for development
+]}}, supports_credentials=True)
 
 # Global analyzers
 graph_analyzer = RedirectGraphAnalyzer()
