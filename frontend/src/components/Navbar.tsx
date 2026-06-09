@@ -1,11 +1,13 @@
 import { useState, useEffect } from 'react';
-import { Shield, Github, Menu, X, ChevronDown } from 'lucide-react';
+import { Shield, Github, Menu, X, BarChart2 } from 'lucide-react';
 
 interface Props {
   onReset?: () => void;
+  onDashboard?: () => void;
+  isDashboard?: boolean;
 }
 
-export default function Navbar({ onReset }: Props) {
+export default function Navbar({ onReset, onDashboard, isDashboard }: Props) {
   const [scrolled, setScrolled] = useState(false);
   const [menuOpen, setMenuOpen] = useState(false);
 
@@ -20,10 +22,12 @@ export default function Navbar({ onReset }: Props) {
     document.getElementById(id)?.scrollIntoView({ behavior: 'smooth' });
   };
 
+  const isScrolledOrDashboard = scrolled || isDashboard;
+
   return (
     <header
       className={`fixed top-0 left-0 right-0 z-50 transition-all duration-300 ${
-        scrolled
+        isScrolledOrDashboard
           ? 'bg-white/95 backdrop-blur-md shadow-sm border-b border-gray-100'
           : 'bg-transparent'
       }`}
@@ -40,10 +44,10 @@ export default function Navbar({ onReset }: Props) {
               <Shield size={16} className="text-white" />
             </div>
             <div className="flex flex-col leading-none">
-              <span className={`font-bold text-sm tracking-tight transition-colors ${scrolled ? 'text-gray-900' : 'text-white'}`}>
+              <span className={`font-bold text-sm tracking-tight transition-colors ${isScrolledOrDashboard ? 'text-gray-900' : 'text-white'}`}>
                 HybridURL
               </span>
-              <span className={`text-[10px] font-medium transition-colors ${scrolled ? 'text-blue-600' : 'text-blue-300'}`}>
+              <span className={`text-[10px] font-medium transition-colors ${isScrolledOrDashboard ? 'text-blue-600' : 'text-blue-300'}`}>
                 DETECTION SYSTEM
               </span>
             </div>
@@ -52,15 +56,15 @@ export default function Navbar({ onReset }: Props) {
           {/* Desktop Nav */}
           <nav className="hidden md:flex items-center gap-1">
             {[
-              { label: 'Features', id: 'features' },
+              { label: 'Features',    id: 'features' },
               { label: 'Methodology', id: 'methodology' },
-              { label: 'Statistics', id: 'stats' },
+              { label: 'Statistics',  id: 'stats' },
             ].map(({ label, id }) => (
               <button
                 key={id}
                 onClick={() => scrollTo(id)}
                 className={`px-4 py-2 rounded-lg text-sm font-medium transition-all duration-150 ${
-                  scrolled
+                  isScrolledOrDashboard
                     ? 'text-gray-600 hover:text-gray-900 hover:bg-gray-100'
                     : 'text-white/80 hover:text-white hover:bg-white/10'
                 }`}
@@ -77,13 +81,30 @@ export default function Navbar({ onReset }: Props) {
               target="_blank"
               rel="noopener noreferrer"
               className={`flex items-center gap-1.5 text-sm font-medium transition-colors ${
-                scrolled ? 'text-gray-500 hover:text-gray-900' : 'text-white/70 hover:text-white'
+                isScrolledOrDashboard ? 'text-gray-500 hover:text-gray-900' : 'text-white/70 hover:text-white'
               }`}
               id="nav-github"
             >
               <Github size={16} />
               <span>GitHub</span>
             </a>
+
+            {/* Threat Dashboard toggle */}
+            <button
+              onClick={onDashboard}
+              className={`flex items-center gap-1.5 text-sm font-semibold px-4 py-2 rounded-lg transition-all duration-150 border ${
+                isDashboard
+                  ? 'bg-indigo-600 text-white border-indigo-600 shadow-md'
+                  : isScrolledOrDashboard
+                  ? 'bg-indigo-50 text-indigo-700 border-indigo-200 hover:bg-indigo-100'
+                  : 'bg-white/10 text-white border-white/20 hover:bg-white/20'
+              }`}
+              id="nav-dashboard-btn"
+            >
+              <BarChart2 size={14} />
+              {isDashboard ? 'Back to Scanner' : 'Threat Dashboard'}
+            </button>
+
             <button
               onClick={() => scrollTo('hero')}
               className="flex items-center gap-1.5 bg-blue-600 hover:bg-blue-700 text-white text-sm font-semibold px-4 py-2 rounded-lg transition-all duration-150 shadow-sm hover:shadow-md"
@@ -97,7 +118,7 @@ export default function Navbar({ onReset }: Props) {
           {/* Mobile menu button */}
           <button
             className={`md:hidden p-2 rounded-lg transition-colors ${
-              scrolled ? 'text-gray-700 hover:bg-gray-100' : 'text-white hover:bg-white/10'
+              isScrolledOrDashboard ? 'text-gray-700 hover:bg-gray-100' : 'text-white hover:bg-white/10'
             }`}
             onClick={() => setMenuOpen(!menuOpen)}
             aria-label="Toggle menu"
@@ -124,7 +145,13 @@ export default function Navbar({ onReset }: Props) {
                 {label}
               </button>
             ))}
-            <div className="pt-2 border-t border-gray-100">
+            <div className="pt-2 border-t border-gray-100 space-y-2">
+              <button
+                onClick={onDashboard}
+                className="w-full flex items-center justify-center gap-2 bg-indigo-600 text-white text-sm font-semibold px-4 py-2.5 rounded-lg"
+              >
+                <BarChart2 size={14} /> Threat Dashboard
+              </button>
               <button
                 onClick={() => scrollTo('hero')}
                 className="w-full flex items-center justify-center gap-2 bg-blue-600 text-white text-sm font-semibold px-4 py-2.5 rounded-lg"
