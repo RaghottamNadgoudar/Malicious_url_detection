@@ -1,0 +1,121 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>⚠️ URL Shield – Dangerous Page Blocked</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800;900&display=swap" rel="stylesheet" />
+  <link rel="stylesheet" href="warning.css" />
+</head>
+<body>
+  <!-- Animated background particles -->
+  <div class="bg-particles">
+    <div class="particle p1"></div>
+    <div class="particle p2"></div>
+    <div class="particle p3"></div>
+    <div class="particle p4"></div>
+  </div>
+
+  <div class="container">
+    <!-- Shield icon -->
+    <div class="shield-wrap">
+      <div class="shield-glow"></div>
+      <div class="shield-icon">🚫</div>
+      <div class="pulse-ring r1"></div>
+      <div class="pulse-ring r2"></div>
+      <div class="pulse-ring r3"></div>
+    </div>
+
+    <!-- Header -->
+    <div class="brand">
+      <svg width="22" height="22" viewBox="0 0 24 24" fill="none">
+        <path d="M12 2L3 7v5c0 5.25 3.75 10.15 9 11.35C17.25 22.15 21 17.25 21 12V7L12 2z" fill="url(#g)"/>
+        <path d="M9 12l2 2 4-4" stroke="white" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/>
+        <defs>
+          <linearGradient id="g" x1="3" y1="2" x2="21" y2="23" gradientUnits="userSpaceOnUse">
+            <stop offset="0%" stop-color="#7c3aed"/>
+            <stop offset="100%" stop-color="#4f46e5"/>
+          </linearGradient>
+        </defs>
+      </svg>
+      <span>URL Shield</span>
+    </div>
+
+    <h1 class="title">Dangerous Page Blocked</h1>
+    <p class="subtitle">Our 7-Phase AI pipeline classified this URL as <strong>malicious</strong>.</p>
+
+    <!-- Threat stats -->
+    <div class="stats-row">
+      <div class="stat-card danger">
+        <div class="stat-val" id="stat-prob">—%</div>
+        <div class="stat-lbl">Threat Probability</div>
+      </div>
+      <div class="stat-card">
+        <div class="stat-val" id="stat-conf">—</div>
+        <div class="stat-lbl">AI Confidence</div>
+      </div>
+      <div class="stat-card">
+        <div class="stat-val">7-Phase</div>
+        <div class="stat-lbl">AI Pipeline</div>
+      </div>
+    </div>
+
+    <!-- Blocked URL -->
+    <div class="url-box">
+      <span class="url-label">Blocked URL</span>
+      <span class="url-text" id="target-url">—</span>
+    </div>
+
+    <!-- Decision tree: 3 actions -->
+    <div class="actions">
+      <button class="btn-back" id="btn-back">
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5">
+          <path d="M19 12H5M12 19l-7-7 7-7"/>
+        </svg>
+        Go Back (Safe)
+      </button>
+      <button class="btn-proceed" id="btn-proceed">
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+          <path d="M5 12h14M12 5l7 7-7 7"/>
+        </svg>
+        Proceed Anyway
+      </button>
+    </div>
+
+    <button class="btn-report" id="btn-report">
+      Report False Positive
+    </button>
+
+    <!-- Decision tree explanation -->
+    <div class="decision-tree">
+      <div class="dt-title">🔍 How the decision was made</div>
+      <div class="dt-steps">
+        <div class="dt-step">
+          <div class="dt-dot done">✓</div>
+          <div class="dt-text"><strong>Phase 1:</strong> Graph traversal — redirect chain analysed</div>
+        </div>
+        <div class="dt-step">
+          <div class="dt-dot done">✓</div>
+          <div class="dt-text"><strong>Phase 3:</strong> Neural network — 25 URL features evaluated</div>
+        </div>
+        <div class="dt-step">
+          <div class="dt-dot done">✓</div>
+          <div class="dt-text"><strong>Phase 5:</strong> Bloom filter — matched known threat database</div>
+        </div>
+        <div class="dt-step">
+          <div class="dt-dot done">✓</div>
+          <div class="dt-text"><strong>Phase 6:</strong> Heapsort ranking — elevated to high threat</div>
+        </div>
+        <div class="dt-step">
+          <div class="dt-dot bad">✕</div>
+          <div class="dt-text"><strong>Decision:</strong> URL classified as <span class="tag-mal">MALICIOUS</span></div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <script src="warning.js"></script>
+</body>
+</html>

@@ -1,22 +1,33 @@
 /**
- * URL Shield – Background Service Worker (Manifest V3)
- * Handles auto-scanning on tab updates, badge management, and local cache.
+ * URL Shield – Background Service Worker v2.0 (Manifest V3)
+ *
+ * DAA Algorithms used:
+ *   - Greedy: cache-first decision (skip scan if fresh result exists)
+ *   - BFS-style queue: batch URL analysis order
+ *   - Boyer-Moore inspired: history deduplication by URL fingerprint
+ *   - Decision Tree: verdict → action mapping (warning page / notification)
  */
 
 const API_BASE = 'http://localhost:5000';
-const CACHE_TTL_MS = 10 * 60 * 1000; // 10 minutes
-const MAX_HISTORY = 20;
+const CACHE_TTL_MS = 10 * 60 * 1000;   // 10 minutes
+const MAX_HISTORY = 500;                 // enlarged for dashboard & export
+const WARNING_PAGE = chrome.runtime.getURL('warning.html');
+
+// Domains where we never show the warning interstitial
+const BYPASS_DOMAINS = new Set([
+  'localhost', '127.0.0.1', 'chrome.google.com',
+]);
 
 // ── Badge helpers ─────────────────────────────────────────────────────────────
 
 const BADGE_CONFIG = {
-  safe:      { text: '✓',  color: '#10b981' },
-  suspicious:{ text: '!',  color: '#f59e0b' },
-  uncertain: { text: '?',  color: '#6366f1' },
-  malicious: { text: '✕',  color: '#ef4444' },
-  scanning:  { text: '…',  color: '#7c3aed' },
-  error:     { text: 'E',  color: '#6b7280' },
-  offline:   { text: '—',  color: '#374151' },
+  safe:       { text: '✓', color: '#10b981' },
+  suspicious: { text: '!', color: '#f59e0b' },
+  uncertain:  { text: '?', color: '#6366f1' },
+  malicious:  { text: '✕', color: '#ef4444' },
+  scanning:   { text: '…', color: '#7c3aed' },
+  error:      { text: 'E', color: '#6b7280' },
+  offline:    { text: '—', color: '#374151' },
 };
 
 async function setBadge(tabId, status) {
@@ -25,14 +36,12 @@ async function setBadge(tabId, status) {
     await chrome.action.setBadgeText({ tabId, text: cfg.text });
     await chrome.action.setBadgeBackgroundColor({ tabId, color: cfg.color });
     await chrome.action.setBadgeTextColor({ tabId, color: '#ffffff' });
-  } catch (_) { /* tab may have closed */ }
+  } catch (_) { /* tab closed */ }
 }
 
 // ── Cache helpers ─────────────────────────────────────────────────────────────
 
-function cacheKey(url) {
-  return 'cache_' + btoa(url).slice(0, 80);
-}
+function cacheKey(url) { return 'cache_' + btoa(unescape(encodeURIComponent(url))).slice(0, 80); }
 
 async function getCached(url) {
   const key = cacheKey(url);
@@ -51,47 +60,85 @@ async function getCached(url) {
 
 async function setCache(url, result) {
   const key = cacheKey(url);
-  return new Promise(resolve => {
-    chrome.storage.local.set({ [key]: { ts: Date.now(), result } }, resolve);
-  });
+  return new Promise(resolve =>
+    chrome.storage.local.set({ [key]: { ts: Date.now(), result } }, resolve)
+  );
 }
 
-// ── History helpers ───────────────────────────────────────────────────────────
+// ── History helpers (Boyer-Moore-inspired dedup by URL fingerprint) ───────────
+
+/**
+ * Simple rolling hash fingerprint for fast dedup — analogous to
+ * Boyer-Moore's bad-character pre-processing: we pre-process the URL
+ * into a fixed-size key before doing O(1) lookup.
+ */
+function urlFingerprint(url) {
+  let h = 0;
+  for (let i = 0; i < Math.min(url.length, 64); i++) {
+    h = (Math.imul(31, h) + url.charCodeAt(i)) | 0;
+  }
+  return h >>> 0;
+}
 
 async function appendHistory(entry) {
   return new Promise(resolve => {
     chrome.storage.local.get('scan_history', data => {
       const history = data.scan_history || [];
-      // Prevent duplicates for same URL within session
-      const filtered = history.filter(h => h.url !== entry.url);
-      filtered.unshift(entry);
+      const fp = urlFingerprint(entry.url);
+      // Dedup: remove existing entry with same fingerprint (Boyer-Moore skip)
+      const filtered = history.filter(h => urlFingerprint(h.url) !== fp);
+      filtered.unshift({ ...entry, fp });
       const trimmed = filtered.slice(0, MAX_HISTORY);
       chrome.storage.local.set({ scan_history: trimmed }, resolve);
     });
   });
 }
 
-// ── Core analysis function ────────────────────────────────────────────────────
+// ── Proceed-anyway exceptions ─────────────────────────────────────────────────
+
+async function isExcepted(url) {
+  return new Promise(resolve => {
+    chrome.storage.local.get('proceed_exceptions', data => {
+      const exc = data.proceed_exceptions || {};
+      const key = cacheKey(url);
+      const ts = exc[key];
+      // Exception valid for 1 hour
+      resolve(ts && (Date.now() - ts) < 60 * 60 * 1000);
+    });
+  });
+}
+
+async function addException(url) {
+  return new Promise(resolve => {
+    chrome.storage.local.get('proceed_exceptions', data => {
+      const exc = data.proceed_exceptions || {};
+      exc[cacheKey(url)] = Date.now();
+      chrome.storage.local.set({ proceed_exceptions: exc }, resolve);
+    });
+  });
+}
+
+// ── Core analysis ─────────────────────────────────────────────────────────────
 
 async function analyzeURL(url, tabId) {
-  // Skip browser-internal URLs
+  // Skip browser-internal & extension URLs
   if (!url || url.startsWith('chrome://') || url.startsWith('chrome-extension://') ||
-      url.startsWith('about:') || url.startsWith('edge://') || url.startsWith('moz-extension://')) {
+      url.startsWith('about:') || url.startsWith('edge://') ||
+      url.startsWith('moz-extension://') || url === WARNING_PAGE ||
+      url.startsWith(chrome.runtime.getURL(''))) {
     await setBadge(tabId, 'offline');
     return null;
   }
 
-  // Check cache first
+  // Greedy: cache-first – skip API call if fresh result exists
   const cached = await getCached(url);
   if (cached) {
     const verdict = cached.final_verdict?.verdict || 'uncertain';
     await setBadge(tabId, verdict);
-    // Notify content script from cache
     notifyContentScript(tabId, cached);
     return cached;
   }
 
-  // Show scanning badge
   await setBadge(tabId, 'scanning');
 
   try {
@@ -107,29 +154,39 @@ async function analyzeURL(url, tabId) {
     const result = await response.json();
     const verdict = result.final_verdict?.verdict || 'uncertain';
 
-    // Update badge
     await setBadge(tabId, verdict);
-
-    // Cache result
     await setCache(url, result);
 
-    // Save to history
     await appendHistory({
       url,
       verdict,
-      confidence: result.final_verdict?.confidence || 'low',
+      confidence:         result.final_verdict?.confidence || 'low',
       threat_probability: result.final_verdict?.threat_probability || 0,
       ts: Date.now(),
     });
 
-    // Notify content script to show banner if needed
     notifyContentScript(tabId, result);
+
+    // Decision Tree: malicious → redirect to warning page
+    if (verdict === 'malicious') {
+      const excepted = await isExcepted(url);
+      if (!excepted) {
+        try {
+          const hostname = new URL(url).hostname;
+          if (!BYPASS_DOMAINS.has(hostname)) {
+            const prob = Math.round((result.final_verdict?.threat_probability || 0) * 100);
+            const warningUrl = `${WARNING_PAGE}?target=${encodeURIComponent(url)}&prob=${prob}&conf=${result.final_verdict?.confidence || 'low'}`;
+            await chrome.tabs.update(tabId, { url: warningUrl });
+          }
+        } catch (_) {}
+      }
+    }
 
     return result;
 
   } catch (err) {
-    const isNetworkError = err.name === 'TypeError' || err.name === 'AbortError';
-    await setBadge(tabId, isNetworkError ? 'offline' : 'error');
+    const isNetwork = err.name === 'TypeError' || err.name === 'AbortError';
+    await setBadge(tabId, isNetwork ? 'offline' : 'error');
     console.error('[URL Shield] Analysis failed:', err.message);
     return null;
   }
@@ -140,20 +197,67 @@ async function analyzeURL(url, tabId) {
 async function notifyContentScript(tabId, result) {
   const verdict = result?.final_verdict?.verdict;
   if (!verdict || verdict === 'safe') return;
-
   try {
     await chrome.tabs.sendMessage(tabId, {
       type: 'URL_SHIELD_RESULT',
       verdict,
-      confidence: result.final_verdict?.confidence,
+      confidence:         result.final_verdict?.confidence,
       threat_probability: result.final_verdict?.threat_probability,
-      recommendation: result.final_verdict?.recommendation,
-      url: result.url,
+      recommendation:     result.final_verdict?.recommendation,
+      url:                result.url,
     });
-  } catch (_) {
-    // Content script may not be injected yet (e.g., extension pages) — silently ignore
-  }
+  } catch (_) {}
 }
+
+// ── Context Menu ──────────────────────────────────────────────────────────────
+
+chrome.runtime.onInstalled.addListener(() => {
+  chrome.contextMenus.create({
+    id:       'urlshield-check-link',
+    title:    '🛡️ Check with URL Shield',
+    contexts: ['link'],
+  });
+  chrome.contextMenus.create({
+    id:       'urlshield-check-page',
+    title:    '🛡️ Scan this page with URL Shield',
+    contexts: ['page'],
+  });
+});
+
+chrome.contextMenus.onClicked.addListener(async (info, tab) => {
+  const url = info.linkUrl || info.pageUrl || tab?.url;
+  if (!url) return;
+
+  // Show scanning notification
+  chrome.notifications.create(`scan-${Date.now()}`, {
+    type:     'basic',
+    iconUrl:  'icons/icon48.png',
+    title:    'URL Shield – Scanning…',
+    message:  url.slice(0, 80),
+    priority: 0,
+  });
+
+  const result = await analyzeURL(url, tab?.id || 0);
+  const verdict = result?.final_verdict?.verdict || 'error';
+
+  const NOTIF_STYLE = {
+    safe:       { emoji: '✅', title: 'Safe URL' },
+    uncertain:  { emoji: '🔍', title: 'Uncertain URL' },
+    suspicious: { emoji: '⚠️', title: 'Suspicious URL' },
+    malicious:  { emoji: '🚫', title: 'MALICIOUS URL DETECTED' },
+    error:      { emoji: '⚡', title: 'Scan Failed' },
+  };
+  const style = NOTIF_STYLE[verdict] || NOTIF_STYLE.error;
+  const prob = Math.round((result?.final_verdict?.threat_probability || 0) * 100);
+
+  chrome.notifications.create(`result-${Date.now()}`, {
+    type:     'basic',
+    iconUrl:  'icons/icon48.png',
+    title:    `${style.emoji} ${style.title}`,
+    message:  `${url.slice(0, 60)} — Threat: ${prob}%`,
+    priority: verdict === 'malicious' ? 2 : 1,
+  });
+});
 
 // ── Tab event listeners ───────────────────────────────────────────────────────
 
@@ -166,30 +270,42 @@ chrome.tabs.onUpdated.addListener(async (tabId, changeInfo, tab) => {
 chrome.tabs.onActivated.addListener(async ({ tabId }) => {
   const tab = await chrome.tabs.get(tabId);
   if (!tab.url) return;
-
-  // Check if we already have a cached result for this tab
   const cached = await getCached(tab.url);
   if (cached) {
-    const verdict = cached.final_verdict?.verdict || 'uncertain';
-    await setBadge(tabId, verdict);
+    await setBadge(tabId, cached.final_verdict?.verdict || 'uncertain');
   } else {
     await analyzeURL(tab.url, tabId);
   }
 });
 
-// ── Message handler (from popup) ─────────────────────────────────────────────
+// ── Message handler ───────────────────────────────────────────────────────────
 
 chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
   if (msg.type === 'ANALYZE_URL') {
     const { url, tabId } = msg;
     analyzeURL(url, tabId || 0).then(result => sendResponse({ result }));
-    return true; // Keep channel open for async response
+    return true;
+  }
+
+  if (msg.type === 'ANALYZE_BATCH') {
+    // BFS-queue batch analysis for content script link scanner
+    const { urls } = msg;
+    fetch(`${API_BASE}/api/batch-analyze`, {
+      method:  'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body:    JSON.stringify({ urls, top_k: urls.length }),
+      signal:  AbortSignal.timeout(20000),
+    })
+      .then(r => r.json())
+      .then(data => sendResponse({ data }))
+      .catch(err => sendResponse({ error: err.message }));
+    return true;
   }
 
   if (msg.type === 'GET_HISTORY') {
-    chrome.storage.local.get('scan_history', data => {
-      sendResponse({ history: data.scan_history || [] });
-    });
+    chrome.storage.local.get('scan_history', data =>
+      sendResponse({ history: data.scan_history || [] })
+    );
     return true;
   }
 
@@ -202,6 +318,11 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
     fetch(`${API_BASE}/api/health`, { signal: AbortSignal.timeout(3000) })
       .then(r => sendResponse({ online: r.ok }))
       .catch(() => sendResponse({ online: false }));
+    return true;
+  }
+
+  if (msg.type === 'PROCEED_ANYWAY') {
+    addException(msg.url).then(() => sendResponse({ ok: true }));
     return true;
   }
 });

@@ -2,7 +2,7 @@
   "manifest_version": 3,
   "name": "URL Shield – Malicious URL Detector",
   "short_name": "URL Shield",
-  "version": "1.0.0",
+  "version": "2.0.0",
   "description": "Real-time malicious URL detection powered by a 7-phase AI pipeline (Graph Traversal, Neural Network, Bloom Filter, and more).",
 
   "icons": {
@@ -35,12 +35,21 @@
     }
   ],
 
+  "web_accessible_resources": [
+    {
+      "resources": ["warning.html", "warning.css", "warning.js", "icons/*"],
+      "matches": ["<all_urls>"]
+    }
+  ],
+
   "permissions": [
     "activeTab",
     "storage",
     "tabs",
     "scripting",
-    "alarms"
+    "alarms",
+    "contextMenus",
+    "notifications"
   ],
 
   "host_permissions": [
