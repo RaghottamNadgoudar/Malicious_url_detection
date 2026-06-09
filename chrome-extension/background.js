@@ -13,10 +13,20 @@ const CACHE_TTL_MS = 10 * 60 * 1000;   // 10 minutes
 const MAX_HISTORY = 500;                 // enlarged for dashboard & export
 const WARNING_PAGE = chrome.runtime.getURL('warning.html');
 
-// Domains where we never show the warning interstitial
+// Domains/URLs where we NEVER analyze or show warnings
 const BYPASS_DOMAINS = new Set([
-  'localhost', '127.0.0.1', 'chrome.google.com',
+  'localhost', '127.0.0.1', '::1', '0.0.0.0',
+  'chrome.google.com',
 ]);
+// Prefixes that should always be skipped entirely (no API call, no badge)
+const SKIP_PREFIXES = [
+  'chrome://', 'chrome-extension://', 'about:', 'edge://',
+  'moz-extension://', 'file://',
+  'http://localhost', 'https://localhost',
+  'http://127.0.0.1', 'https://127.0.0.1',
+  'http://0.0.0.0', 'https://0.0.0.0',
+  'http://[::1]', 'https://[::1]',
+];
 
 // ── Badge helpers ─────────────────────────────────────────────────────────────
 
@@ -121,12 +131,14 @@ async function addException(url) {
 // ── Core analysis ─────────────────────────────────────────────────────────────
 
 async function analyzeURL(url, tabId) {
-  // Skip browser-internal & extension URLs
-  if (!url || url.startsWith('chrome://') || url.startsWith('chrome-extension://') ||
-      url.startsWith('about:') || url.startsWith('edge://') ||
-      url.startsWith('moz-extension://') || url === WARNING_PAGE ||
-      url.startsWith(chrome.runtime.getURL(''))) {
-    await setBadge(tabId, 'offline');
+  // Skip browser-internal, extension & local dev URLs
+  if (!url) { await setBadge(tabId, 'offline'); return null; }
+
+  const isSkipped = SKIP_PREFIXES.some(p => url.startsWith(p)) ||
+                    url === WARNING_PAGE ||
+                    url.startsWith(chrome.runtime.getURL(''));
+  if (isSkipped) {
+    await setBadge(tabId, 'safe');
     return null;
   }
 

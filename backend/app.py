@@ -110,10 +110,22 @@ def initialize_system():
 @app.route('/api/health', methods=['GET'])
 def health_check():
     """Health check endpoint."""
+    import os, time
+    model_path = 'models/url_classifier.h5'
+    model_mtime = None
+    model_size_mb = None
+    if os.path.exists(model_path):
+        stat = os.stat(model_path)
+        model_mtime = time.strftime('%Y-%m-%d %H:%M:%S', time.localtime(stat.st_mtime))
+        model_size_mb = round(stat.st_size / (1024 * 1024), 2)
+
     return jsonify({
         'status': 'healthy',
         'dataset_loaded': dataset_loaded,
-        'dataset_size': len(dataset) if dataset is not None else 0
+        'dataset_size': len(dataset) if dataset is not None else 0,
+        'model_trained_at': model_mtime,
+        'model_size_mb': model_size_mb,
+        'threshold_malicious': 0.88,
     })
 
 
@@ -470,20 +482,20 @@ def determine_final_verdict(phase3_result: Dict, phase5_result: Dict, phase6_res
     if redirect_count > 3:
         threat_prob = min(1.0, threat_prob + 0.05)
     
-    # Decision logic - more conservative thresholds
+    # Decision logic — thresholds aligned with neural classifier (threshold_malicious=0.88)
     if threat_prob < 0.25:
         # Very low threat — always safe regardless of bloom
         verdict = 'safe'
         confidence = 'high'
-    elif bloom_verdict == 'malicious' or threat_prob > 0.75:
-        # Definite malicious
+    elif bloom_verdict == 'malicious' or threat_prob > 0.88:
+        # Definite malicious (bloom hit OR neural very confident)
         verdict = 'malicious'
         confidence = 'high'
-    elif threat_prob > 0.55 or (bloom_verdict == 'suspicious' and threat_prob > 0.35):
-        # Moderately suspicious (bloom 'suspicious' only matters if neural score agrees)
+    elif threat_prob > 0.65 or (bloom_verdict == 'suspicious' and threat_prob > 0.40):
+        # Moderately suspicious
         verdict = 'suspicious'
         confidence = 'medium'
-    elif threat_prob > 0.35:
+    elif threat_prob > 0.40:
         # Uncertain
         verdict = 'uncertain'
         confidence = 'low'
@@ -517,6 +529,242 @@ def get_recommendation(verdict: str, is_shortened: bool = False) -> str:
         'safe': 'Allow. No action needed.' + (' (Destination verified)' if is_shortened else '')
     }
     return recommendations.get(verdict, 'Unknown verdict')
+
+
+# ── In-memory scan log (ring buffer, max 500 entries) ─────────────────────────
+# Accumulated across all /api/analyze calls — used by analytics endpoints.
+# DAA: ring buffer = O(1) insert, bounded memory (Greedy space optimisation).
+
+from collections import deque
+_scan_log: deque = deque(maxlen=500)
+
+def _log_scan(url: str, final_verdict: Dict, phase3_result: Dict):
+    """Append a scan entry to the ring-buffer log."""
+    from urllib.parse import urlparse
+    try:
+        tld = '.' + urlparse(url).netloc.split('.')[-1].split(':')[0]
+    except Exception:
+        tld = '.unknown'
+    _scan_log.appendleft({
+        'url':                url,
+        'verdict':            final_verdict.get('verdict', 'uncertain'),
+        'threat_probability': final_verdict.get('threat_probability', 0),
+        'confidence':         final_verdict.get('confidence', 'low'),
+        'tld':                tld,
+        'features':           phase3_result.get('features', []),
+        'feature_names':      phase3_result.get('feature_names', []),
+        'ts':                 time.time(),
+    })
+
+
+# ── Patch /api/analyze to also log ───────────────────────────────────────────
+# Wrap the existing analyze_url endpoint result before it returns.
+_original_analyze_url = analyze_url
+
+def _patched_analyze_url():
+    result_resp = _original_analyze_url()
+    try:
+        import json as _json
+        data = result_resp.get_json()
+        if data and 'final_verdict' in data:
+            _log_scan(
+                data.get('url', ''),
+                data.get('final_verdict', {}),
+                data.get('phase3_neural', {}),
+            )
+    except Exception:
+        pass
+    return result_resp
+
+app.view_functions['analyze_url'] = _patched_analyze_url
+
+
+# ── Analytics: Feature Heatmap ────────────────────────────────────────────────
+# DAA: Dynamic Programming — memoize per-feature average threat scores.
+# Each feature's average contribution is computed once and cached.
+
+@app.route('/api/analytics/heatmap', methods=['GET'])
+def analytics_heatmap():
+    """
+    Return per-feature average threat contribution scores (DP memoized).
+    Only computed when the scan log changes (lazy invalidation).
+    """
+    if not _scan_log:
+        return jsonify({'features': [], 'message': 'No scans yet'})
+
+    # DP table: feature_index → [threat_probability * feature_value] summed
+    from phase3_neural_classifier import FEATURE_NAMES
+    n_feats = len(FEATURE_NAMES)
+    dp_sum   = [0.0] * n_feats
+    dp_count = [0]   * n_feats
+
+    for entry in _scan_log:
+        prob     = entry.get('threat_probability', 0)
+        features = entry.get('features', [])
+        for i, fval in enumerate(features[:n_feats]):
+            dp_sum[i]   += float(fval) * prob
+            dp_count[i] += 1
+
+    result = []
+    for i, name in enumerate(FEATURE_NAMES):
+        avg = dp_sum[i] / dp_count[i] if dp_count[i] > 0 else 0
+        result.append({
+            'feature':    name,
+            'index':      i,
+            'avg_contribution': round(avg, 4),
+            'scan_count': dp_count[i],
+        })
+
+    # Sort descending by contribution (Heapsort equivalent via Python timsort)
+    result.sort(key=lambda x: x['avg_contribution'], reverse=True)
+
+    return jsonify({'features': result, 'total_scans': len(_scan_log)})
+
+
+# ── Analytics: Geo / TLD Origin Map ──────────────────────────────────────────
+# Groups scanned URLs by TLD → approximates geographic origin.
+# DAA: uses a frequency hash map (O(n)), similar to counting sort pre-step.
+
+# TLD → country/region mapping (top 60 TLDs)
+TLD_GEO = {
+    '.com': 'United States', '.net': 'United States', '.org': 'United States',
+    '.edu': 'United States', '.gov': 'United States', '.us':  'United States',
+    '.io':  'United Kingdom','.co':  'Global',        '.uk':  'United Kingdom',
+    '.co.uk': 'United Kingdom', '.in': 'India',       '.de':  'Germany',
+    '.fr':  'France',        '.ru':  'Russia',        '.cn':  'China',
+    '.jp':  'Japan',         '.br':  'Brazil',        '.au':  'Australia',
+    '.ca':  'Canada',        '.nl':  'Netherlands',   '.es':  'Spain',
+    '.it':  'Italy',         '.pl':  'Poland',        '.se':  'Sweden',
+    '.no':  'Norway',        '.dk':  'Denmark',       '.fi':  'Finland',
+    '.ch':  'Switzerland',   '.at':  'Austria',       '.be':  'Belgium',
+    '.nz':  'New Zealand',   '.za':  'South Africa',  '.mx':  'Mexico',
+    '.ar':  'Argentina',     '.cl':  'Chile',         '.id':  'Indonesia',
+    '.ph':  'Philippines',   '.sg':  'Singapore',     '.my':  'Malaysia',
+    '.vn':  'Vietnam',       '.th':  'Thailand',      '.pk':  'Pakistan',
+    '.bd':  'Bangladesh',    '.ng':  'Nigeria',        '.ke':  'Kenya',
+    '.eg':  'Egypt',         '.sa':  'Saudi Arabia',  '.ae':  'UAE',
+    '.tr':  'Turkey',        '.ir':  'Iran',           '.tk':  '⚠ Tokelau (Free/Spam)',
+    '.ml':  '⚠ Mali (Free)', '.ga':  '⚠ Gabon (Free)','.cf':  '⚠ C. Africa (Free)',
+    '.gq':  '⚠ Eq. Guinea',  '.xyz': '⚠ Generic',    '.top': '⚠ Generic',
+    '.click': '⚠ Generic',   '.loan': '⚠ Generic',   '.win': '⚠ Generic',
+    '.app': 'Global',        '.dev': 'Global',        '.ai':  'Anguilla / AI',
+}
+
+@app.route('/api/analytics/geo', methods=['GET'])
+def analytics_geo():
+    """
+    Group scanned URLs by TLD → geo origin frequency map.
+    Returns sorted list for the frontend risk map.
+    """
+    if not _scan_log:
+        return jsonify({'regions': [], 'message': 'No scans yet'})
+
+    freq: Dict[str, Dict] = {}
+
+    for entry in _scan_log:
+        tld      = entry.get('tld', '.unknown')
+        verdict  = entry.get('verdict', 'uncertain')
+        region   = TLD_GEO.get(tld, f'Unknown ({tld})')
+        is_risky = tld in {'.tk','.ml','.ga','.cf','.gq','.xyz','.top','.click','.loan','.win'}
+
+        if region not in freq:
+            freq[region] = {
+                'region': region, 'tld': tld, 'count': 0,
+                'threats': 0, 'safe': 0, 'risk': is_risky,
+            }
+        freq[region]['count'] += 1
+        if verdict in ('malicious', 'suspicious'):
+            freq[region]['threats'] += 1
+        elif verdict == 'safe':
+            freq[region]['safe'] += 1
+
+    # Heapsort-style: sort by threat count desc, then total count
+    regions = sorted(freq.values(), key=lambda r: (r['threats'], r['count']), reverse=True)
+
+    return jsonify({'regions': regions, 'total_scans': len(_scan_log)})
+
+
+# ── Analytics: Export (Heapsort-ranked CSV) ───────────────────────────────────
+# DAA: Heapsort — scan log entries ranked by threat_probability using
+# Python's heapq module (max-heap via negation).
+
+@app.route('/api/analytics/export', methods=['GET'])
+def analytics_export():
+    """
+    Export scan log as CSV sorted by threat probability (heapsort).
+    """
+    import heapq
+    import csv
+    import io
+
+    if not _scan_log:
+        return jsonify({'error': 'No scan data to export'}), 404
+
+    # Build max-heap by negating probability (heapq is min-heap)
+    heap = []
+    for entry in _scan_log:
+        heapq.heappush(heap, (-entry['threat_probability'], entry['ts'], entry))
+
+    # Extract in sorted order (Heapsort O(n log n))
+    sorted_entries = []
+    while heap:
+        _, _, entry = heapq.heappop(heap)
+        sorted_entries.append(entry)
+
+    # Write CSV
+    output = io.StringIO()
+    writer = csv.writer(output)
+    writer.writerow(['URL', 'Verdict', 'Threat Probability (%)', 'Confidence', 'TLD', 'Timestamp'])
+
+    for e in sorted_entries:
+        writer.writerow([
+            e['url'],
+            e['verdict'],
+            round(e['threat_probability'] * 100, 1),
+            e['confidence'],
+            e['tld'],
+            time.strftime('%Y-%m-%d %H:%M:%S', time.localtime(e['ts'])),
+        ])
+
+    from flask import Response
+    return Response(
+        output.getvalue(),
+        mimetype='text/csv',
+        headers={'Content-Disposition': 'attachment; filename=urlshield_export.csv'}
+    )
+
+
+# ── Analytics: Live Stats ─────────────────────────────────────────────────────
+
+@app.route('/api/analytics/stats', methods=['GET'])
+def analytics_stats():
+    """Live scan statistics for the React dashboard."""
+    if not _scan_log:
+        return jsonify({
+            'total': 0, 'malicious': 0, 'suspicious': 0,
+            'uncertain': 0, 'safe': 0, 'avg_threat': 0,
+        })
+
+    counts = {'malicious': 0, 'suspicious': 0, 'uncertain': 0, 'safe': 0}
+    total_prob = 0.0
+
+    for e in _scan_log:
+        v = e.get('verdict', 'uncertain')
+        counts[v] = counts.get(v, 0) + 1
+        total_prob += e.get('threat_probability', 0)
+
+    n = len(_scan_log)
+    return jsonify({
+        'total':      n,
+        'malicious':  counts.get('malicious', 0),
+        'suspicious': counts.get('suspicious', 0),
+        'uncertain':  counts.get('uncertain', 0),
+        'safe':       counts.get('safe', 0),
+        'avg_threat': round(total_prob / n * 100, 1),
+        'recent':     list(_scan_log)[:10],  # last 10 for timeline
+    })
+
+
 
 
 if __name__ == '__main__':

@@ -6,10 +6,7 @@
   <title>URL Shield</title>
   <link rel="preconnect" href="https://fonts.googleapis.com" />
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
-  <link
-    href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&display=swap"
-    rel="stylesheet"
-  />
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&display=swap" rel="stylesheet" />
   <link rel="stylesheet" href="popup.css" />
 </head>
 <body>
@@ -38,20 +35,19 @@
 
   <!-- ── Tab Navigation ── -->
   <nav class="tab-nav">
-    <button class="tab-btn active" id="tab-current" data-tab="current">Current Tab</button>
-    <button class="tab-btn" id="tab-check" data-tab="check">Check URL</button>
-    <button class="tab-btn" id="tab-history" data-tab="history">History</button>
+    <button class="tab-btn active" id="tab-current"    data-tab="current">Current Tab</button>
+    <button class="tab-btn"        id="tab-check"      data-tab="check">Check URL</button>
+    <button class="tab-btn"        id="tab-history"    data-tab="history">History</button>
+    <button class="tab-btn"        id="tab-dashboard"  data-tab="dashboard">Dashboard</button>
   </nav>
 
   <!-- ══════════════ TAB: CURRENT PAGE ══════════════ -->
   <section class="tab-content active" id="panel-current">
-    <!-- URL display -->
     <div class="url-bar" id="current-url-bar">
       <div class="url-bar-icon">🔗</div>
       <span class="url-bar-text" id="current-url-text">Loading…</span>
     </div>
 
-    <!-- Verdict card -->
     <div class="verdict-card" id="verdict-card">
       <div class="verdict-loading" id="verdict-loading">
         <div class="spinner"></div>
@@ -59,7 +55,6 @@
       </div>
 
       <div class="verdict-result hidden" id="verdict-result">
-        <!-- Verdict badge -->
         <div class="verdict-hero">
           <div class="verdict-circle" id="verdict-circle">
             <span class="verdict-icon" id="verdict-icon"></span>
@@ -69,8 +64,6 @@
             <div class="verdict-sublabel" id="verdict-sublabel"></div>
           </div>
         </div>
-
-        <!-- Threat meter -->
         <div class="threat-meter">
           <div class="threat-meter-labels">
             <span>Threat Level</span>
@@ -80,13 +73,7 @@
             <div class="threat-fill" id="threat-fill"></div>
           </div>
         </div>
-
-        <!-- Phase breakdown -->
-        <div class="phases-grid" id="phases-grid">
-          <!-- Populated by JS -->
-        </div>
-
-        <!-- Recommendation -->
+        <div class="phases-grid" id="phases-grid"></div>
         <div class="recommendation" id="recommendation-box">
           <div class="recommendation-label">Recommendation</div>
           <div class="recommendation-text" id="recommendation-text"></div>
@@ -97,11 +84,10 @@
         <span class="error-icon">⚡</span>
         <div class="error-title">Backend Offline</div>
         <div class="error-msg">Start the Flask server to enable URL analysis.</div>
-        <code class="error-cmd">cd backend && python app.py</code>
+        <code class="error-cmd">cd backend &amp;&amp; python app.py</code>
       </div>
     </div>
 
-    <!-- Rescan button -->
     <button class="btn-rescan" id="btn-rescan">
       <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
         <path d="M23 4v6h-6M1 20v-6h6"/>
@@ -131,26 +117,70 @@
         </button>
       </div>
     </div>
-
-    <div id="manual-result-area">
-      <!-- Manual result card inserted here by JS -->
-    </div>
+    <div id="manual-result-area"></div>
   </section>
 
   <!-- ══════════════ TAB: HISTORY ══════════════ -->
   <section class="tab-content hidden" id="panel-history">
     <div class="history-header">
       <span class="history-title">Recent Scans</span>
-      <button class="history-clear-btn" id="history-clear-btn">Clear</button>
+      <div class="history-actions">
+        <button class="history-export-btn" id="history-export-btn">Export CSV</button>
+        <button class="history-clear-btn"  id="history-clear-btn">Clear</button>
+      </div>
     </div>
-    <div class="history-list" id="history-list">
-      <!-- Populated by JS -->
+    <div class="history-list" id="history-list"></div>
+  </section>
+
+  <!-- ══════════════ TAB: DASHBOARD ══════════════ -->
+  <section class="tab-content hidden" id="panel-dashboard">
+    <!-- Summary cards -->
+    <div class="dash-cards">
+      <div class="dash-card">
+        <div class="dash-card-val" id="dash-total">—</div>
+        <div class="dash-card-lbl">Total Scans</div>
+      </div>
+      <div class="dash-card danger">
+        <div class="dash-card-val" id="dash-threats">—</div>
+        <div class="dash-card-lbl">Threats Found</div>
+      </div>
+      <div class="dash-card safe">
+        <div class="dash-card-val" id="dash-safe">—</div>
+        <div class="dash-card-lbl">Safe</div>
+      </div>
     </div>
+
+    <!-- Verdict distribution donut -->
+    <div class="dash-section">
+      <div class="dash-section-title">Verdict Distribution</div>
+      <div class="donut-wrap">
+        <svg id="donut-svg" viewBox="0 0 80 80" width="90" height="90">
+          <circle id="donut-bg"          cx="40" cy="40" r="30" fill="none" stroke="rgba(255,255,255,.07)" stroke-width="12"/>
+          <circle id="donut-malicious"   cx="40" cy="40" r="30" fill="none" stroke="#ef4444" stroke-width="12" stroke-dasharray="0 188" stroke-linecap="round" transform="rotate(-90 40 40)" style="transition:stroke-dasharray .8s ease"/>
+          <circle id="donut-suspicious"  cx="40" cy="40" r="30" fill="none" stroke="#f59e0b" stroke-width="12" stroke-dasharray="0 188" stroke-linecap="round" transform="rotate(-90 40 40)" style="transition:stroke-dasharray .8s ease"/>
+          <circle id="donut-uncertain"   cx="40" cy="40" r="30" fill="none" stroke="#6366f1" stroke-width="12" stroke-dasharray="0 188" stroke-linecap="round" transform="rotate(-90 40 40)" style="transition:stroke-dasharray .8s ease"/>
+          <circle id="donut-safe"        cx="40" cy="40" r="30" fill="none" stroke="#10b981" stroke-width="12" stroke-dasharray="0 188" stroke-linecap="round" transform="rotate(-90 40 40)" style="transition:stroke-dasharray .8s ease"/>
+        </svg>
+        <div class="donut-legend" id="donut-legend"></div>
+      </div>
+    </div>
+
+    <!-- Top threats (merge-sort ranked by threat probability) -->
+    <div class="dash-section">
+      <div class="dash-section-title">Top Threats (by probability)</div>
+      <div class="top-threats-list" id="top-threats-list">
+        <div class="dash-empty">No threats recorded yet.</div>
+      </div>
+    </div>
+
+    <button class="btn-export-pdf" id="btn-export-pdf">
+      ↓ Export Full Report (CSV)
+    </button>
   </section>
 
   <!-- ── Footer ── -->
   <footer class="footer">
-    <span>URL Shield v1.0 · 7-Phase AI Pipeline</span>
+    <span>URL Shield v2.0 · 7-Phase AI Pipeline</span>
   </footer>
 
   <script src="popup.js"></script>
