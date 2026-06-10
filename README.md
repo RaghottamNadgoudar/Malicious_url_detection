@@ -58,6 +58,7 @@ This system implements a multi-phase detection pipeline that analyzes URLs throu
 url-detection-system/
 ├── Documentation/              # All documentation
 │   ├── ALGORITHMS_EXPLAINED.md # Detailed algorithm explanations
+│   ├── WORKFLOW_PIPELINE.md   # Detailed execution trace & pipeline docs
 │   ├── TEST_URLS.md           # Test URLs for validation
 │   ├── TRAINING_GUIDE.md      # Model training guide
 │   └── README.md              # Documentation index
@@ -206,6 +207,7 @@ See `Documentation/ALGORITHMS_EXPLAINED.md` for detailed explanations.
 ## 📖 Documentation
 
 - [Algorithms Explained](Documentation/ALGORITHMS_EXPLAINED.md)
+- [Workflow Pipeline](Documentation/WORKFLOW_PIPELINE.md)
 - [Training Guide](Documentation/TRAINING_GUIDE.md)
 - [Test URLs](Documentation/TEST_URLS.md)
 - [Recent Changes](CHANGES.md)
