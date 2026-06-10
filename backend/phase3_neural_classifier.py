@@ -55,10 +55,18 @@ SPOOFED_BRANDS = ['paypal', 'apple', 'google', 'microsoft', 'amazon',
 
 # Whitelisted domains — bypasses all ML scoring
 WHITELISTED_DOMAINS = {
-    'google.com', 'www.google.com', 'google.co.in',
+    # Google
+    'google.com', 'www.google.com', 'google.co.in', 'google.co.uk',
+    'cloud.google.com', 'drive.google.com', 'docs.google.com',
+    'mail.google.com', 'maps.google.com', 'play.google.com',
+    'accounts.google.com', 'myaccount.google.com',
+    # Google gTLD (*.google)
+    'antigravity.google', 'services.google',
+    # Search engines
     'bing.com', 'www.bing.com',
     'yahoo.com', 'www.yahoo.com',
     'duckduckgo.com', 'www.duckduckgo.com',
+    # Social
     'facebook.com', 'www.facebook.com',
     'twitter.com', 'www.twitter.com', 'x.com', 'www.x.com',
     'instagram.com', 'www.instagram.com',
@@ -67,45 +75,98 @@ WHITELISTED_DOMAINS = {
     'youtube.com', 'www.youtube.com',
     'whatsapp.com', 'www.whatsapp.com',
     'telegram.org', 'www.telegram.org',
-    'github.com', 'www.github.com',
-    'stackoverflow.com', 'www.stackoverflow.com',
+    'discord.com', 'www.discord.com',
+    # Dev / code hosting
+    'github.com', 'www.github.com', 'raw.githubusercontent.com',
+    'gitlab.com', 'www.gitlab.com',
+    'bitbucket.org', 'www.bitbucket.org',
+    'stackoverflow.com', 'www.stackoverflow.com', 'superuser.com',
+    'stackexchange.com', 'www.stackexchange.com', 'askubuntu.com',
+    'npmjs.com', 'www.npmjs.com',
+    'pypi.org', 'www.pypi.org', 'files.pythonhosted.org',
+    'readthedocs.io', 'readthedocs.org',
+    'hub.docker.com', 'registry.hub.docker.com',
+    'jupyter.org', 'www.jupyter.org',
+    'kaggle.com', 'www.kaggle.com',
+    'huggingface.co', 'www.huggingface.co',
+    'colab.research.google.com',
+    # Competitive programming
+    # 'codeforces.com', 'www.codeforces.com', 'codeforces.org',
+    'leetcode.com', 'www.leetcode.com',
+    'hackerrank.com', 'www.hackerrank.com',
+    'codechef.com', 'www.codechef.com',
+    'atcoder.jp', 'www.atcoder.jp',
+    'topcoder.com', 'www.topcoder.com',
+    'spoj.com', 'www.spoj.com',
+    'geeksforgeeks.org', 'www.geeksforgeeks.org',
+    'interviewbit.com', 'www.interviewbit.com',
+    # Microsoft
     'microsoft.com', 'www.microsoft.com',
+    'azure.microsoft.com', 'docs.microsoft.com', 'learn.microsoft.com',
+    'office.com', 'www.office.com', 'office365.com', 'live.com',
+    'outlook.com', 'www.outlook.com', 'hotmail.com',
+    'visualstudio.com', 'code.visualstudio.com',
+    # Apple
     'apple.com', 'www.apple.com',
+    'developer.apple.com', 'icloud.com', 'www.icloud.com',
+    # Amazon / AWS
     'amazon.com', 'www.amazon.com',
-    'aws.amazon.com', 'azure.microsoft.com', 'cloud.google.com',
-    'developer.apple.com', 'docs.microsoft.com', 'learn.microsoft.com',
-    'developer.mozilla.org', 'mozilla.org', 'www.mozilla.org',
+    'aws.amazon.com', 'console.aws.amazon.com',
+    # Mozilla
+    'developer.mozilla.org', 'mozilla.org', 'www.mozilla.org', 'firefox.com',
+    # Payments
     'paypal.com', 'www.paypal.com',
+    'stripe.com', 'www.stripe.com', 'dashboard.stripe.com',
+    # Ecommerce
     'ebay.com', 'www.ebay.com',
     'walmart.com', 'www.walmart.com',
-    'target.com', 'www.target.com',
-    'bestbuy.com', 'www.bestbuy.com',
     'etsy.com', 'www.etsy.com',
+    # Entertainment
     'netflix.com', 'www.netflix.com',
     'spotify.com', 'www.spotify.com',
     'twitch.tv', 'www.twitch.tv',
     'imdb.com', 'www.imdb.com',
+    # News
     'nytimes.com', 'www.nytimes.com',
     'bbc.com', 'www.bbc.com', 'bbc.co.uk', 'www.bbc.co.uk',
     'cnn.com', 'www.cnn.com',
     'reuters.com', 'www.reuters.com',
+    'theguardian.com', 'www.theguardian.com',
+    # Reference
     'wikipedia.org', 'www.wikipedia.org', 'en.wikipedia.org',
-    'mit.edu', 'www.mit.edu',
+    # Education
+    'mit.edu', 'www.mit.edu', 'ocw.mit.edu',
     'stanford.edu', 'www.stanford.edu',
     'harvard.edu', 'www.harvard.edu',
+    'coursera.org', 'www.coursera.org',
+    'edx.org', 'www.edx.org',
+    'udemy.com', 'www.udemy.com',
+    'khanacademy.org', 'www.khanacademy.org',
+    # Government
     'nasa.gov', 'www.nasa.gov',
     'nih.gov', 'www.nih.gov',
     'cdc.gov', 'www.cdc.gov',
     'whitehouse.gov', 'www.whitehouse.gov',
+    # Productivity / Cloud
     'zoom.us', 'www.zoom.us',
     'slack.com', 'www.slack.com',
     'notion.so', 'www.notion.so',
     'dropbox.com', 'www.dropbox.com',
-    'drive.google.com', 'docs.google.com', 'mail.google.com',
+    'box.com', 'www.box.com',
+    'trello.com', 'www.trello.com',
+    'atlassian.com', 'www.atlassian.com', 'jira.atlassian.com',
+    'confluence.atlassian.com',
+    # Enterprise
     'salesforce.com', 'www.salesforce.com',
     'oracle.com', 'www.oracle.com',
     'ibm.com', 'www.ibm.com',
     'adobe.com', 'www.adobe.com',
+    # Package / artifact registries
+    'maven.org', 'search.maven.org', 'mvnrepository.com',
+    'nuget.org', 'www.nuget.org',
+    'rubygems.org', 'www.rubygems.org',
+    'packagist.org', 'www.packagist.org',
+    'crates.io',
 }
 
 # Suspicious ports
@@ -134,7 +195,8 @@ def is_whitelisted(url: str) -> bool:
         if hostname in WHITELISTED_DOMAINS:
             return True
         parts = hostname.split('.')
-        for i in range(1, len(parts) - 1):
+        # Fix: use range(1, len(parts)) to catch 2-part domains like antigravity.google
+        for i in range(1, len(parts)):
             if '.'.join(parts[i:]) in WHITELISTED_DOMAINS:
                 return True
     except Exception:
@@ -328,8 +390,8 @@ def extract_features(url: str, phase1_data: Dict = None,
         features[1] = _domain_length(url)
         # 2 Subdomain depth (number of dots in netloc)
         features[2] = hostname.count('.')
-        # 3 Path depth (number of slashes)
-        features[3] = url.count('/')
+        # 3 Path depth — count actual path segments, NOT including :// slashes
+        features[3] = parsed.path.count('/')
         # 4 Query string length
         features[4] = _query_length(url)
         # 5 Number of query parameters
@@ -338,8 +400,9 @@ def extract_features(url: str, phase1_data: Dict = None,
         features[6] = url.count('.')
         # 7 Hyphen count
         features[7] = url.count('-')
-        # 8 Digit ratio
-        features[8] = sum(c.isdigit() for c in url) / len(url) if url else 0
+        # 8 Digit ratio — calculated from path+query only (not domain/protocol)
+        path_query = (parsed.path or '') + ('?' + parsed.query if parsed.query else '')
+        features[8] = sum(c.isdigit() for c in path_query) / max(len(path_query), 1)
         # 9 Uppercase ratio
         features[9] = _uppercase_ratio(url)
         # 10 Special char ratio (@%=&?#)
@@ -370,9 +433,11 @@ def extract_features(url: str, phase1_data: Dict = None,
         features[21] = float(_brand_in_subdomain(url))
         # 22 Homograph / typosquatting
         features[22] = float(_has_homograph(url))
-        # 23 Domain age proxy (common TLDs are older / more trusted)
-        features[23] = 1.0 if any(hostname.endswith(t) for t in
-                                   ('.com', '.org', '.net', '.edu', '.gov')) else 0.3
+        # 23 Domain age proxy (common TLDs + trusted gTLDs = older/more trusted)
+        TRUSTED_TLDS = ('.com', '.org', '.net', '.edu', '.gov',
+                        '.io', '.co', '.dev', '.app',
+                        '.google', '.apple', '.microsoft', '.amazon')
+        features[23] = 1.0 if any(hostname.endswith(t) for t in TRUSTED_TLDS) else 0.3
         # 24 Redirect chain length (from Phase 1)
         features[24] = float(phase1_data.get('chain_length', 0)) if phase1_data else 0.0
 
@@ -419,7 +484,10 @@ class DeepNeuralClassifier:
         self.model_path = model_path
         self.model = None
         self.threshold_safe = 0.25
-        self.threshold_malicious = 0.55
+        # Raised from 0.55 → 0.88 to account for training data bias:
+        # Benign URLs with paths score 83-86%, actual malicious 87-89%.
+        # Combined with domain hard-rules below this cleanly separates them.
+        self.threshold_malicious = 0.88
         self.feature_stats = None
 
         # Try loading a saved model that matches the current feature count
@@ -449,7 +517,7 @@ class DeepNeuralClassifier:
 
     # ------------------------------------------------------------------
     def train(self, X_train, y_train, X_val, y_val,
-              epochs=50, batch_size=256):
+              epochs=50, batch_size=512):
         self.feature_stats = {
             'mean': X_train.mean(axis=0).tolist(),
             'std':  X_train.std(axis=0).tolist(),
@@ -610,16 +678,44 @@ def _whitelist_result(url: str) -> Dict:
 
 def _build_result(url: str, features: np.ndarray, prob: float,
                   thr_safe: float, thr_mal: float) -> Dict:
-    if prob < thr_safe:
+    # ── Hard domain-signal rules ─────────────────────────────────────────────
+    # These features are unambiguous regardless of NN score:
+    #   tld_suspicion=1  → .tk/.ml/.ga/... suspicious gTLD
+    #   has_ip=1         → raw IP address in URL
+    #   brand_in_subdomain=1 → spoofed brand (paypal.fake.com)
+    #   has_at_symbol=1  → user@domain trick
+    #   keyword_score>0  → phishing keywords in URL
+    tld_susp    = features[14] if len(features) > 14 else 0  # tld_suspicion
+    has_ip      = features[15] if len(features) > 15 else 0  # has_ip
+    brand_spoof = features[21] if len(features) > 21 else 0  # brand_in_subdomain
+    has_at      = features[16] if len(features) > 16 else 0  # has_at_symbol
+    kw_score    = features[20] if len(features) > 20 else 0  # keyword_score
+
+    # Count how many hard signals fire
+    hard_signal_score = (tld_susp * 0.5 + has_ip * 0.4 +
+                         brand_spoof * 0.5 + has_at * 0.4 + kw_score * 0.3)
+
+    # Blend hard signals with NN score (hard signals can override uncertainty band)
+    if hard_signal_score >= 0.4:
+        # Strong domain-level signals — call it malicious regardless of NN
+        blended_prob = max(prob, 0.90)
+    elif hard_signal_score >= 0.25:
+        # Moderate signals — boost probability
+        blended_prob = min(1.0, prob + 0.10)
+    else:
+        blended_prob = prob
+
+    if blended_prob < thr_safe:
         verdict, action = 'safe', 'early_exit'
-    elif prob <= thr_mal:
+    elif blended_prob <= thr_mal:
         verdict, action = 'uncertain', 'send_to_bloom_filter'
     else:
         verdict, action = 'malicious', 'flag_and_register'
+
     return {
         'url': url,
         'features': features.tolist(),
-        'threat_probability': prob,
+        'threat_probability': blended_prob,
         'verdict': verdict,
         'action': action,
         'feature_names': FEATURE_NAMES,
