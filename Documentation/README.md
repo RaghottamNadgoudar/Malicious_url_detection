@@ -21,6 +21,14 @@ Each algorithm includes:
 - Visual explanations
 - Use cases
 
+### 🔄 WORKFLOW_PIPELINE.md
+Highly detailed, end-to-end trace of how a URL is processed by the hybrid engine:
+- Visual Mermaid workflow charts
+- Step-by-step description of data flows and DAA paradigms
+- Verdict blending decision trees
+- Subsystem integration details (Backend, React Frontend, Chrome Extension)
+- Offline model training & live performance benchmarking flows
+
 ### 🧪 TEST_URLS.md
 Collection of test URLs for validating the system:
 - Safe URLs (legitimate websites)
@@ -36,6 +44,7 @@ Use these URLs to test the detection system's accuracy.
 - [Main README](../README.md)
 - [Quick Start Guide](../QUICKSTART.md)
 - [Project Summary](../PROJECT_SUMMARY.md)
+- [Workflow Pipeline](WORKFLOW_PIPELINE.md)
 
 ## Contributing
 
