@@ -195,6 +195,10 @@ def analyze_url():
         # PHASE 6: Heapsort Ranking
         phase6_result = heapsort_ranker.analyze_url(analysis_url, combined_data)
 
+        final_verdict = determine_final_verdict(
+            phase3_result, phase5_result, phase6_result, expansion_result
+        )
+
         final_result = {
             'url': url,
             'url_expansion': expansion_result,
@@ -204,9 +208,14 @@ def analyze_url():
             'phase4_greedy': phase4_result,
             'phase5_bloom': phase5_result,
             'phase6_ranking': phase6_result,
-            'final_verdict': determine_final_verdict(phase3_result, phase5_result,
-                                                     phase6_result, expansion_result),
+            'final_verdict': final_verdict,
         }
+
+        # ── Log to in-memory scan ring-buffer (analytics) ──────────────
+        try:
+            _log_scan(url, final_verdict, phase3_result)
+        except Exception:
+            pass  # never block the response
 
         return jsonify(final_result)
 
@@ -556,27 +565,6 @@ def _log_scan(url: str, final_verdict: Dict, phase3_result: Dict):
         'ts':                 time.time(),
     })
 
-
-# ── Patch /api/analyze to also log ───────────────────────────────────────────
-# Wrap the existing analyze_url endpoint result before it returns.
-_original_analyze_url = analyze_url
-
-def _patched_analyze_url():
-    result_resp = _original_analyze_url()
-    try:
-        import json as _json
-        data = result_resp.get_json()
-        if data and 'final_verdict' in data:
-            _log_scan(
-                data.get('url', ''),
-                data.get('final_verdict', {}),
-                data.get('phase3_neural', {}),
-            )
-    except Exception:
-        pass
-    return result_resp
-
-app.view_functions['analyze_url'] = _patched_analyze_url
 
 
 # ── Analytics: Feature Heatmap ────────────────────────────────────────────────
