@@ -1,0 +1,482 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>URL Shield Neural — CharCNN + DistilBERT</title>
+  <meta name="description" content="Neural URL classifier using CharCNN and DistilBERT ensemble (no LightGBM)." />
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800;900&display=swap" rel="stylesheet" />
+  <style>
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+    :root {
+      --bg: #080814;
+      --surface: rgba(255,255,255,0.04);
+      --surface-hover: rgba(255,255,255,0.07);
+      --border: rgba(255,255,255,0.08);
+      --text-primary: #f0f0ff;
+      --text-secondary: #9090b8;
+      --text-dim: #555570;
+      --safe:    #22c55e;  --safe-bg:  rgba(34,197,94,0.12);
+      --susp:    #f59e0b;  --susp-bg:  rgba(245,158,11,0.12);
+      --mal:     #ef4444;  --mal-bg:   rgba(239,68,68,0.12);
+      --cyan:    #06b6d4;
+      --pink:    #ec4899;
+      --grad:    linear-gradient(135deg, #ec4899, #06b6d4);
+    }
+    html { scroll-behavior: smooth; }
+    body { font-family: 'Inter', sans-serif; background: var(--bg); color: var(--text-primary); min-height: 100vh; overflow-x: hidden; }
+
+    /* orbs */
+    .orb { position: fixed; border-radius: 50%; pointer-events: none; z-index: 0; filter: blur(80px); opacity: 0.22; }
+    .orb-1 { width: 550px; height: 550px; background: #9d174d; top: -180px; left: -180px; }
+    .orb-2 { width: 480px; height: 480px; background: #0e7490; bottom: -140px; right: -140px; }
+    .orb-3 { width: 280px; height: 280px; background: #7c3aed; top: 55%; left: 50%; transform: translate(-50%,-50%); }
+
+    main { position: relative; z-index: 1; max-width: 740px; margin: 0 auto; padding: 48px 24px 80px; }
+
+    /* badge to indicate neural-only mode */
+    .mode-badge {
+      display: inline-flex; align-items: center; gap: 6px;
+      background: rgba(6,182,212,0.12); border: 1px solid rgba(6,182,212,0.3);
+      border-radius: 100px; padding: 5px 14px;
+      font-size: 11px; font-weight: 700; letter-spacing: 1.2px;
+      text-transform: uppercase; color: #67e8f9; margin-bottom: 10px;
+    }
+    .pipeline-toggle {
+      display: flex; align-items: center; gap: 8px;
+      margin-top: 8px; font-size: 12px; color: var(--text-dim);
+    }
+    .pipeline-toggle a {
+      color: #a78bfa; text-decoration: none; border-bottom: 1px dashed rgba(167,139,250,0.4);
+    }
+    .pipeline-toggle a:hover { color: #c4b5fd; }
+
+    .hero { text-align: center; margin-bottom: 44px; }
+    .hero h1 {
+      font-size: clamp(32px,5.5vw,52px); font-weight: 900; line-height: 1.1;
+      background: var(--grad); -webkit-background-clip: text;
+      -webkit-text-fill-color: transparent; background-clip: text;
+      margin-bottom: 10px;
+    }
+    .hero p { color: var(--text-secondary); font-size: 15px; max-width: 460px; margin: 0 auto; }
+
+    /* model tags */
+    .model-pills { display: flex; justify-content: center; gap: 10px; margin-top: 18px; flex-wrap: wrap; }
+    .pill {
+      display: flex; align-items: center; gap: 7px;
+      background: var(--surface); border: 1px solid var(--border);
+      border-radius: 100px; padding: 6px 14px; font-size: 12px; font-weight: 600;
+    }
+    .pill-dot { width: 7px; height: 7px; border-radius: 50%; }
+
+    /* card */
+    .card {
+      background: rgba(255,255,255,0.03); border: 1px solid var(--border);
+      border-radius: 22px; padding: 30px; backdrop-filter: blur(20px);
+      transition: border-color 0.3s;
+    }
+    .card:hover { border-color: rgba(6,182,212,0.2); }
+
+    /* input */
+    .input-row {
+      display: flex; gap: 10px; align-items: stretch;
+      background: rgba(255,255,255,0.03); border: 1px solid var(--border);
+      border-radius: 14px; padding: 8px; transition: border-color 0.3s, box-shadow 0.3s;
+    }
+    .input-row:focus-within {
+      border-color: var(--cyan);
+      box-shadow: 0 0 0 3px rgba(6,182,212,0.2), 0 0 28px rgba(6,182,212,0.1);
+    }
+    .url-prefix { display: flex; align-items: center; padding: 0 12px; color: var(--text-dim); font-size: 13px; border-right: 1px solid var(--border); user-select: none; }
+    #url-input { flex:1; background:transparent; border:none; outline:none; color:var(--text-primary); font-family:'Inter',sans-serif; font-size:15px; padding:14px 12px; }
+    #url-input::placeholder { color: var(--text-dim); }
+
+    .btn-analyze {
+      display: flex; align-items: center; gap: 8px;
+      background: var(--grad); border: none; border-radius: 10px;
+      color: white; font-family: 'Inter',sans-serif;
+      font-size: 14px; font-weight: 700; padding: 14px 22px;
+      cursor: pointer; white-space: nowrap; transition: opacity 0.2s, transform 0.1s; letter-spacing: 0.4px;
+    }
+    .btn-analyze:hover { opacity: 0.88; }
+    .btn-analyze:active { transform: scale(0.97); }
+    .btn-analyze:disabled { opacity: 0.38; cursor: not-allowed; transform: none; }
+    .btn-analyze .spinner { width:16px; height:16px; border:2px solid rgba(255,255,255,0.3); border-top-color:white; border-radius:50%; animation:spin 0.6s linear infinite; display:none; }
+    .btn-analyze.loading .spinner { display:block; }
+    .btn-analyze.loading .btn-text { display:none; }
+    @keyframes spin { to { transform: rotate(360deg); } }
+
+    /* examples */
+    .example-btn {
+      background: rgba(255,255,255,0.04); border: 1px solid rgba(255,255,255,0.07);
+      color: var(--text-secondary); border-radius: 6px; padding: 5px 10px;
+      font-family: monospace; font-size: 11px; cursor: pointer; transition: all 0.2s;
+    }
+    .example-btn:hover { border-color: rgba(6,182,212,0.4); color: #67e8f9; background: rgba(6,182,212,0.08); }
+
+    /* result */
+    #result-section { margin-top: 28px; display: none; animation: fadeUp 0.4s ease-out; }
+    @keyframes fadeUp { from { opacity:0; transform:translateY(14px); } to { opacity:1; transform:translateY(0); } }
+    #result-section.visible { display: block; }
+
+    .verdict-banner {
+      border-radius: 16px; padding: 26px;
+      display: flex; align-items: center; gap: 18px;
+      margin-bottom: 22px; border: 1px solid;
+    }
+    .verdict-banner.safe       { background: var(--safe-bg); border-color: rgba(34,197,94,0.3); }
+    .verdict-banner.suspicious { background: var(--susp-bg); border-color: rgba(245,158,11,0.3); }
+    .verdict-banner.malicious  { background: var(--mal-bg);  border-color: rgba(239,68,68,0.3); }
+    .verdict-icon { font-size: 44px; line-height: 1; flex-shrink: 0; }
+    .verdict-info { flex: 1; }
+    .verdict-label { font-size: 10px; font-weight: 700; letter-spacing: 2px; text-transform: uppercase; margin-bottom: 3px; }
+    .verdict-label.safe       { color: var(--safe); }
+    .verdict-label.suspicious { color: var(--susp); }
+    .verdict-label.malicious  { color: var(--mal);  }
+    .verdict-text  { font-size: 24px; font-weight: 800; line-height: 1.2; margin-bottom: 5px; }
+    .verdict-url   { font-size: 12px; color: var(--text-secondary); word-break: break-all; font-family: monospace; }
+    .confidence-wrap { display: flex; flex-direction: column; align-items: flex-end; gap: 3px; }
+    .confidence-value { font-size: 30px; font-weight: 900; }
+    .confidence-value.safe       { color: var(--safe); }
+    .confidence-value.suspicious { color: var(--susp); }
+    .confidence-value.malicious  { color: var(--mal);  }
+    .confidence-label { font-size: 10px; color: var(--text-secondary); font-weight: 500; }
+
+    .section-title { font-size: 10px; font-weight: 700; letter-spacing: 2px; text-transform: uppercase; color: var(--text-dim); margin-bottom: 12px; }
+
+    /* two-column expert grid */
+    .expert-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 14px; margin-bottom: 22px; }
+    .expert-card {
+      background: var(--surface); border: 1px solid var(--border);
+      border-radius: 14px; padding: 22px 18px;
+      text-align: center; transition: all 0.3s;
+    }
+    .expert-card:hover { background: var(--surface-hover); border-color: rgba(6,182,212,0.3); }
+    .expert-name { font-size: 10px; font-weight: 700; letter-spacing: 1.5px; text-transform: uppercase; color: var(--text-dim); margin-bottom: 14px; }
+    .arc-wrap { position: relative; width: 80px; height: 80px; margin: 0 auto 12px; }
+    .arc-bg, .arc-fill { fill: none; stroke-width: 6; }
+    .arc-bg   { stroke: rgba(255,255,255,0.06); }
+    .arc-fill { stroke-linecap: round; transition: stroke-dashoffset 0.9s cubic-bezier(.4,0,.2,1); }
+    .arc-text { position: absolute; inset: 0; display: flex; align-items: center; justify-content: center; font-size: 15px; font-weight: 800; }
+    .expert-detail { font-size: 10px; color: var(--text-dim); line-height: 1.5; }
+    .expert-weight { font-size: 11px; font-weight: 700; color: var(--text-secondary); margin-top: 6px; }
+
+    /* comparison bar */
+    .vs-bar { display: flex; gap: 0; border-radius: 8px; overflow: hidden; height: 6px; margin-bottom: 22px; }
+    .vs-cnn  { background: linear-gradient(90deg, #ec4899, #f472b6); transition: width 0.8s ease; }
+    .vs-bert { background: linear-gradient(90deg, #06b6d4, #22d3ee); transition: width 0.8s ease; }
+
+    /* features */
+    .feature-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(150px,1fr)); gap: 8px; margin-bottom: 22px; }
+    .feature-tag { display: flex; align-items: center; gap: 8px; background: var(--surface); border: 1px solid var(--border); border-radius: 8px; padding: 10px 11px; font-size: 12px; transition: all 0.2s; }
+    .feature-tag:hover { border-color: rgba(6,182,212,0.3); }
+    .feature-tag .feat-icon { font-size: 13px; flex-shrink: 0; }
+    .feature-tag .feat-body { display: flex; flex-direction: column; gap: 2px; }
+    .feature-tag .feat-name { color: var(--text-secondary); }
+    .feature-tag .feat-val  { font-weight: 700; color: var(--text-primary); }
+    .feature-tag.flagged { border-color: rgba(239,68,68,0.3); background: rgba(239,68,68,0.06); }
+    .feature-tag.flagged .feat-val { color: var(--mal); }
+    .feature-tag.good { border-color: rgba(34,197,94,0.2); }
+    .feature-tag.good .feat-val { color: var(--safe); }
+
+    /* reasoning */
+    .reasoning-box { background: rgba(6,182,212,0.05); border: 1px solid rgba(6,182,212,0.15); border-radius: 12px; padding: 16px; font-size: 13px; color: var(--text-secondary); line-height: 1.7; }
+    .reasoning-box strong { color: #67e8f9; }
+
+    /* error */
+    .error-box { background: rgba(239,68,68,0.08); border: 1px solid rgba(239,68,68,0.25); border-radius: 12px; padding: 16px; color: #fca5a5; font-size: 13px; display: flex; align-items: flex-start; gap: 12px; }
+
+    /* history */
+    #history-section { margin-top: 36px; }
+    .history-item { display: flex; align-items: center; gap: 12px; padding: 11px 15px; background: var(--surface); border: 1px solid var(--border); border-radius: 10px; margin-bottom: 8px; cursor: pointer; transition: all 0.2s; }
+    .history-item:hover { background: var(--surface-hover); border-color: rgba(6,182,212,0.3); }
+    .history-dot { width: 8px; height: 8px; border-radius: 50%; flex-shrink: 0; }
+    .history-dot.safe       { background: var(--safe); box-shadow: 0 0 8px var(--safe); }
+    .history-dot.suspicious { background: var(--susp); box-shadow: 0 0 8px var(--susp); }
+    .history-dot.malicious  { background: var(--mal);  box-shadow: 0 0 8px var(--mal);  }
+    .history-url  { flex: 1; font-size: 13px; font-family: monospace; color: var(--text-secondary); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .history-conf { font-size: 12px; font-weight: 700; }
+    .history-conf.safe       { color: var(--safe); }
+    .history-conf.suspicious { color: var(--susp); }
+    .history-conf.malicious  { color: var(--mal);  }
+
+    footer { text-align: center; margin-top: 60px; color: var(--text-dim); font-size: 12px; line-height: 1.8; }
+    footer a { color: var(--cyan); text-decoration: none; }
+
+    @media (max-width: 540px) {
+      .expert-grid { grid-template-columns: 1fr; }
+      .verdict-banner { flex-direction: column; text-align: center; }
+      .confidence-wrap { align-items: center; }
+      .input-row { flex-direction: column; }
+      .url-prefix { border-right: none; border-bottom: 1px solid var(--border); }
+    }
+  </style>
+</head>
+<body>
+  <div class="orb orb-1"></div>
+  <div class="orb orb-2"></div>
+  <div class="orb orb-3"></div>
+
+  <main>
+    <div class="hero">
+      <div class="mode-badge">⚡ Neural-Only Mode</div>
+      <h1>URL Shield <span style="font-size:0.6em;background:var(--grad);-webkit-background-clip:text;-webkit-text-fill-color:transparent;background-clip:text;">Neural</span></h1>
+      <p>Powered exclusively by deep learning — CharCNN + DistilBERT ensemble, no traditional ML.</p>
+      <div class="model-pills">
+        <div class="pill"><div class="pill-dot" style="background:#ec4899;box-shadow:0 0 8px #ec4899;"></div>CharCNN (40%)</div>
+        <div class="pill"><div class="pill-dot" style="background:#06b6d4;box-shadow:0 0 8px #06b6d4;"></div>DistilBERT (60%)</div>
+      </div>
+      <div class="pipeline-toggle">
+        Switch to <a href="index.html">Full Ensemble (+ LightGBM)</a> &rarr;
+      </div>
+    </div>
+
+    <!-- Input -->
+    <div class="card" style="margin-bottom:22px;">
+      <div class="input-row">
+        <div class="url-prefix">🔗</div>
+        <input id="url-input" type="text" placeholder="Paste any URL to analyze..."
+               autocomplete="off" spellcheck="false" />
+        <button class="btn-analyze" id="analyze-btn" onclick="analyzeURL()">
+          <div class="spinner"></div>
+          <span class="btn-text">Analyze</span>
+        </button>
+      </div>
+      <div style="margin-top:12px;display:flex;flex-wrap:wrap;gap:8px;">
+        <span style="font-size:11px;color:var(--text-dim);align-self:center;">Try:</span>
+        <button class="example-btn" onclick="fill('https://www.github.com')">github.com</button>
+        <button class="example-btn" onclick="fill('http://phishing-login.ml')">phishing.ml</button>
+        <button class="example-btn" onclick="fill('http://paypal-secure.tk/login')">paypal-secure.tk</button>
+        <button class="example-btn" onclick="fill('https://rvce.edu.in')">rvce.edu.in</button>
+        <button class="example-btn" onclick="fill('http://192.168.1.1/admin')">IP address</button>
+        <button class="example-btn" onclick="fill('http://amazon-login-verify.xyz/account/suspended?id=19283')">amazon spoof</button>
+      </div>
+    </div>
+
+    <!-- Results -->
+    <div id="result-section">
+      <!-- verdict -->
+      <div id="verdict-banner" class="verdict-banner">
+        <div class="verdict-icon" id="verdict-icon">🔍</div>
+        <div class="verdict-info">
+          <div class="verdict-label" id="verdict-label">ANALYZING</div>
+          <div class="verdict-text" id="verdict-text">Checking URL...</div>
+          <div class="verdict-url"  id="verdict-url"></div>
+        </div>
+        <div class="confidence-wrap">
+          <div class="confidence-value" id="confidence-val">--%</div>
+          <div class="confidence-label">CONFIDENCE</div>
+        </div>
+      </div>
+
+      <!-- expert scores -->
+      <p class="section-title">Neural Expert Scores</p>
+
+      <!-- contribution bar -->
+      <div class="vs-bar" id="vs-bar" style="margin-bottom:14px;">
+        <div class="vs-cnn"  id="bar-cnn"  style="width:40%"></div>
+        <div class="vs-bert" id="bar-bert" style="width:60%"></div>
+      </div>
+      <div style="display:flex;justify-content:space-between;font-size:10px;color:var(--text-dim);margin-bottom:16px;">
+        <span style="color:#f472b6">CharCNN contribution</span>
+        <span style="color:#22d3ee">DistilBERT contribution</span>
+      </div>
+
+      <div class="expert-grid">
+        <!-- CNN -->
+        <div class="expert-card">
+          <div class="expert-name">Char-CNN</div>
+          <div class="arc-wrap">
+            <svg viewBox="0 0 80 80" style="position:absolute;inset:0;width:100%;height:100%;">
+              <circle class="arc-bg"  cx="40" cy="40" r="32"/>
+              <circle id="arc-cnn" class="arc-fill" cx="40" cy="40" r="32"
+                stroke="#ec4899" stroke-dasharray="201.1" stroke-dashoffset="201.1"
+                transform="rotate(-90 40 40)"/>
+            </svg>
+            <div class="arc-text" id="score-cnn">--%</div>
+          </div>
+          <div class="expert-detail">Character-level 3-kernel CNN detects typosquatting, suspicious n-grams &amp; obfuscated patterns.</div>
+          <div class="expert-weight">Weight: 40%</div>
+        </div>
+        <!-- DistilBERT -->
+        <div class="expert-card">
+          <div class="expert-name">DistilBERT</div>
+          <div class="arc-wrap">
+            <svg viewBox="0 0 80 80" style="position:absolute;inset:0;width:100%;height:100%;">
+              <circle class="arc-bg"  cx="40" cy="40" r="32"/>
+              <circle id="arc-bert" class="arc-fill" cx="40" cy="40" r="32"
+                stroke="#06b6d4" stroke-dasharray="201.1" stroke-dashoffset="201.1"
+                transform="rotate(-90 40 40)"/>
+            </svg>
+            <div class="arc-text" id="score-bert">--%</div>
+          </div>
+          <div class="expert-detail">Transformer model understands semantic context, brand impersonation phrases &amp; URL intent.</div>
+          <div class="expert-weight">Weight: 60%</div>
+        </div>
+      </div>
+
+      <!-- features -->
+      <p class="section-title">URL Feature Analysis</p>
+      <div class="feature-grid" id="feature-grid"></div>
+
+      <!-- reasoning -->
+      <p class="section-title">Neural Reasoning</p>
+      <div class="reasoning-box" id="reasoning-box"></div>
+    </div>
+
+    <!-- History -->
+    <div id="history-section" style="display:none;">
+      <p class="section-title" style="margin-top:16px;">Recent Analyses</p>
+      <div id="history-list"></div>
+    </div>
+
+    <footer>
+      URL Shield Neural &mdash; CharCNN + DistilBERT Ensemble
+      <br>Backend API on <a href="http://localhost:8002/docs" target="_blank">localhost:8002</a>
+      &nbsp;&bull;&nbsp;
+      <a href="index.html">Switch to Full Ensemble</a>
+    </footer>
+  </main>
+
+  <script>
+    const API = 'http://localhost:8002';
+    const history = [];
+
+    function fill(url) {
+      document.getElementById('url-input').value = url;
+      analyzeURL();
+    }
+
+    document.getElementById('url-input').addEventListener('keydown', e => {
+      if (e.key === 'Enter') analyzeURL();
+    });
+
+    async function analyzeURL() {
+      const url = document.getElementById('url-input').value.trim();
+      if (!url) return;
+
+      const btn = document.getElementById('analyze-btn');
+      btn.classList.add('loading'); btn.disabled = true;
+
+      try {
+        const res = await fetch(`${API}/classify`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ url }),
+        });
+        if (!res.ok) { const e = await res.json(); showError(e.detail || 'Server error'); return; }
+        const data = await res.json();
+        displayResult(data);
+        addHistory(data);
+      } catch {
+        showError(`Cannot connect to Neural API (port 8002).\n\nStart it with:\n  uvicorn app_nn:app --reload --port 8002`);
+      } finally {
+        btn.classList.remove('loading'); btn.disabled = false;
+      }
+    }
+
+    function displayResult(data) {
+      const sec = document.getElementById('result-section');
+      sec.classList.add('visible'); sec.style.display = 'block';
+
+      const v = data.verdict;
+      const pct = (data.confidence * 100).toFixed(1) + '%';
+      const icons  = { safe:'🟢', suspicious:'🟡', malicious:'🔴' };
+      const labels = { safe:'URL IS SAFE', suspicious:'SUSPICIOUS', malicious:'MALICIOUS URL' };
+
+      document.getElementById('verdict-banner').className = `verdict-banner ${v}`;
+      document.getElementById('verdict-icon').textContent = icons[v];
+      const lbl = document.getElementById('verdict-label');
+      lbl.className = `verdict-label ${v}`;
+      lbl.textContent = v === 'malicious' ? '⚠ THREAT DETECTED' : v === 'suspicious' ? '⚠ SUSPICIOUS' : '✓ SAFE';
+      document.getElementById('verdict-text').textContent = labels[v];
+      document.getElementById('verdict-url').textContent = data.url;
+      const cv = document.getElementById('confidence-val');
+      cv.className = `confidence-value ${v}`; cv.textContent = pct;
+
+      // Arcs
+      const p1 = data.expert_scores.char_cnn;
+      const p2 = data.expert_scores.distilbert;
+      setArc('arc-cnn',  'score-cnn',  p1, '#ec4899');
+      setArc('arc-bert', 'score-bert', p2, '#06b6d4');
+
+      // Contribution bar (weighted)
+      const w1contrib = 0.40 * p1;
+      const w2contrib = 0.60 * p2;
+      const total = w1contrib + w2contrib || 1;
+      document.getElementById('bar-cnn').style.width  = (w1contrib/total*100).toFixed(1) + '%';
+      document.getElementById('bar-bert').style.width = (w2contrib/total*100).toFixed(1) + '%';
+
+      // Features
+      const f = data.features;
+      const fg = document.getElementById('feature-grid');
+      fg.innerHTML = '';
+      [
+        { icon:'📏', name:'URL Length',     val: f.url_length + ' chars',       flag: f.url_length > 80 },
+        { icon:'🌐', name:'Domain',         val: f.registrable_domain,          flag: false },
+        { icon:'🔒', name:'HTTPS',          val: f.has_https ? 'Yes' : 'No',    flag: !f.has_https, good: f.has_https },
+        { icon:'🏷️', name:'TLD',            val: '.' + (f.tld||'?'),            flag: f.tld_suspicion },
+        { icon:'🔣', name:'Entropy',        val: f.url_entropy.toFixed(2),      flag: f.url_entropy > 4.5 },
+        { icon:'🔢', name:'Dots',           val: f.dot_count,                   flag: f.dot_count > 4 },
+        { icon:'➖', name:'Hyphens',        val: f.hyphen_count,                flag: f.hyphen_count > 3 },
+        { icon:'🔑', name:'Keywords',       val: (f.keyword_score*100).toFixed(0)+'%', flag: f.keyword_score > 0.05 },
+        { icon:'🎭', name:'Brand Spoof',    val: f.brand_in_subdomain ? 'Detected!' : 'None', flag: f.brand_in_subdomain },
+        { icon:'💻', name:'IP Address',     val: f.has_ip ? 'Detected!' : 'None', flag: f.has_ip },
+        { icon:'@',  name:'@ Symbol',       val: f.has_at_symbol ? 'Present' : 'None', flag: f.has_at_symbol },
+        { icon:'📁', name:'Subdomain Depth',val: f.subdomain_depth,             flag: f.subdomain_depth > 2 },
+      ].forEach(fd => {
+        const cls = fd.flag ? 'flagged' : (fd.good ? 'good' : '');
+        fg.innerHTML += `<div class="feature-tag ${cls}">
+          <span class="feat-icon">${fd.icon}</span>
+          <div class="feat-body"><span class="feat-name">${fd.name}</span><span class="feat-val">${fd.val}</span></div>
+        </div>`;
+      });
+
+      // Reasoning
+      document.getElementById('reasoning-box').innerHTML =
+        `<strong>Neural Analysis:</strong> ${data.reasoning}` +
+        (data.latency_ms ? `<br><span style="color:var(--text-dim);font-size:11px;">⚡ Classified in ${data.latency_ms}ms</span>` : '');
+
+      sec.scrollIntoView({ behavior: 'smooth', block: 'start' });
+    }
+
+    function setArc(arcId, labelId, score, defaultColor) {
+      const arc   = document.getElementById(arcId);
+      const label = document.getElementById(labelId);
+      const color = score > 0.6 ? '#ef4444' : score > 0.35 ? '#f59e0b' : '#22c55e';
+      arc.style.stroke = color;
+      arc.style.strokeDashoffset = 201.1 * (1 - score);
+      label.textContent = (score * 100).toFixed(0) + '%';
+      label.style.color = color;
+    }
+
+    function showError(msg) {
+      const sec = document.getElementById('result-section');
+      sec.style.display = 'block'; sec.classList.add('visible');
+      sec.innerHTML = `<div class="error-box">
+        <span style="font-size:22px;flex-shrink:0;">⚠️</span>
+        <div><div style="font-weight:700;margin-bottom:4px;">Error</div>
+        <div style="white-space:pre-line;">${msg}</div></div>
+      </div>`;
+    }
+
+    function addHistory(data) {
+      history.unshift(data);
+      if (history.length > 5) history.pop();
+      const sec = document.getElementById('history-section');
+      const list = document.getElementById('history-list');
+      sec.style.display = 'block'; list.innerHTML = '';
+      history.forEach(item => {
+        const d = document.createElement('div');
+        d.className = 'history-item';
+        d.onclick = () => { document.getElementById('url-input').value = item.url; displayResult(item); };
+        d.innerHTML = `<div class="history-dot ${item.verdict}"></div>
+          <div class="history-url">${item.url}</div>
+          <div class="history-conf ${item.verdict}">${(item.confidence*100).toFixed(0)}%</div>`;
+        list.appendChild(d);
+      });
+    }
+  </script>
+</body>
+</html>

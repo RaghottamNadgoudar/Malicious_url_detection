@@ -138,3 +138,9 @@ result/
 # Research papers
 papers/
 
+test.txt
+
+# Ignore large model files
+*.pt
+*.pt/*
+checkpoints/

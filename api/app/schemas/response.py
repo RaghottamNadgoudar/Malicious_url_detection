@@ -53,6 +53,8 @@ class MLPrediction(BaseModel):
     label: ThreatLevel
     confidence: float = Field(ge=0.0, le=1.0)
     threat_probability: float = Field(ge=0.0, le=1.0)
+    expert_probabilities: Optional[Dict[str, float]] = None
+
 
 
 class RiskScore(BaseModel):

@@ -9,6 +9,7 @@ import math
 from collections import Counter
 from typing import Dict, List, Optional
 from urllib.parse import urlparse, unquote
+import tldextract
 
 from app.utils.logger import get_logger
 
@@ -17,9 +18,9 @@ logger = get_logger("services.feature_extractor")
 # ── Constants ────────────────────────────────────────────────────────────────
 
 SUSPICIOUS_TLDS = {
-    ".tk", ".ml", ".ga", ".cf", ".gq", ".xyz", ".top",
-    ".work", ".click", ".loan", ".win", ".racing", ".date",
-    ".download", ".stream", ".gdn", ".accountant", ".trade",
+    "tk", "ml", "ga", "cf", "gq", "xyz", "top",
+    "work", "click", "loan", "win", "racing", "date",
+    "download", "stream", "gdn", "accountant", "trade",
 }
 
 PHISHING_KEYWORDS: List[str] = [
@@ -40,7 +41,7 @@ SPOOFED_BRANDS = [
 
 SUSPICIOUS_PORTS = {8080, 8443, 9090, 3333, 4444, 5555, 7777, 8888, 9999}
 
-TRUSTED_TLDS = {".com", ".org", ".net", ".edu", ".gov"}
+TRUSTED_TLDS = {"com", "edu.in", "org", "net", "edu", "gov"}
 
 FEATURE_NAMES = [
     "url_length", "domain_length", "subdomain_depth", "path_depth",
@@ -52,6 +53,16 @@ FEATURE_NAMES = [
     "has_homograph", "domain_age_proxy", "chain_length",
 ]
 
+def parse_domain(url: str) -> dict:
+    ext = tldextract.extract(url)
+    return {
+        "subdomain": ext.subdomain,
+        "registrable_domain": ext.domain,
+        "suffix": ext.suffix,
+        "full_registrable": f"{ext.domain}.{ext.suffix}" if ext.suffix else ext.domain,
+        "subdomain_depth": len(ext.subdomain.split(".")) if ext.subdomain else 0,
+    }
+
 # ── Pure helpers ─────────────────────────────────────────────────────────────
 
 def _entropy(text: str) -> float:
@@ -62,14 +73,13 @@ def _entropy(text: str) -> float:
     return -sum((c / total) * math.log2(c / total) for c in freq.values())
 
 
-def _domain_length(parsed) -> int:
+def _domain_length(parsed, ext_info) -> int:
     host = parsed.netloc.lower().split(":")[0].lstrip("www.")
     return len(host)
 
 
-def _subdomain_depth(parsed) -> int:
-    host = parsed.netloc.lower().split(":")[0]
-    return host.count(".")
+def _subdomain_depth(ext_info) -> int:
+    return ext_info["subdomain_depth"]
 
 
 def _query_length(parsed) -> int:
@@ -85,9 +95,8 @@ def _has_ip(url: str) -> bool:
     return bool(re.search(r"\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3}", url))
 
 
-def _domain_entropy(parsed) -> float:
-    host = parsed.netloc.lower().split(":")[0]
-    return _entropy(host)
+def _domain_entropy(ext_info) -> float:
+    return _entropy(ext_info["subdomain"])
 
 
 def _keyword_score(url: str) -> float:
@@ -99,20 +108,18 @@ def _keyword_score(url: str) -> float:
     return min(hits / max(len(PHISHING_KEYWORDS), 1), 1.0)
 
 
-def _brand_in_subdomain(url: str, parsed) -> bool:
-    host = parsed.netloc.lower()
-    parts = host.split(".")
-    root = ".".join(parts[-2:]) if len(parts) >= 2 else host
-    prefix = host[: host.rfind(root)].rstrip(".")
+def _brand_in_subdomain(url: str, parsed, ext_info) -> bool:
+    subdomain = ext_info["subdomain"].lower()
+    domain = ext_info["registrable_domain"].lower()
     path = (parsed.path or "").lower()
     for brand in SPOOFED_BRANDS:
-        if (brand in prefix or brand in path) and brand not in root:
+        if (brand in subdomain or brand in path) and brand not in domain:
             return True
     return False
 
 
-def _has_homograph(url: str, parsed) -> bool:
-    domain = parsed.netloc.lower().split(":")[0].lstrip("www.")
+def _has_homograph(url: str, ext_info) -> bool:
+    domain = ext_info["registrable_domain"].lower()
     leet = domain.translate(str.maketrans("01345", "oieAs"))
     for brand in SPOOFED_BRANDS:
         if brand in leet and brand not in domain:
@@ -127,15 +134,16 @@ def _has_suspicious_port(parsed) -> bool:
         return False
 
 
-def _tld_suspicious(url: str, parsed) -> bool:
-    host = parsed.netloc.lower().split(":")[0]
-    return any(host.endswith(tld) for tld in SUSPICIOUS_TLDS)
+def _tld_suspicious(ext_info) -> bool:
+    suffix = ext_info["suffix"].lower()
+    # sometimes suffix could be multi-level, we can check parts or whole
+    return any(suffix.endswith(tld) or suffix == tld for tld in SUSPICIOUS_TLDS)
 
 
-def _domain_age_proxy(parsed) -> float:
+def _domain_age_proxy(ext_info) -> float:
     """Trusted TLDs = 1.0, unknown = 0.3."""
-    host = parsed.netloc.lower().split(":")[0]
-    return 1.0 if any(host.endswith(t) for t in TRUSTED_TLDS) else 0.3
+    suffix = ext_info["suffix"].lower()
+    return 1.0 if any(suffix.endswith(t) for t in TRUSTED_TLDS) else 0.3
 
 
 # ── Feature extraction ───────────────────────────────────────────────────────
@@ -159,11 +167,13 @@ class FeatureExtractorService:
             parsed = urlparse(url)
         except Exception:
             parsed = urlparse("")
+            
+        ext_info = parse_domain(url)
 
         features: Dict = {
             "url_length": len(url),
-            "domain_length": _domain_length(parsed),
-            "subdomain_depth": _subdomain_depth(parsed),
+            "domain_length": _domain_length(parsed, ext_info),
+            "subdomain_depth": _subdomain_depth(ext_info),
             "path_depth": url.count("/"),
             "query_length": _query_length(parsed),
             "num_query_params": _num_query_params(parsed),
@@ -179,18 +189,18 @@ class FeatureExtractorService:
                 sum(1 for c in url if c in "@%=&?#") / max(len(url), 1), 4
             ),
             "url_entropy": round(_entropy(url), 4),
-            "domain_entropy": round(_domain_entropy(parsed), 4),
+            "domain_entropy": round(_domain_entropy(ext_info), 4),
             "has_https": url.startswith("https://"),
-            "tld_suspicious": _tld_suspicious(url, parsed),
+            "tld_suspicious": _tld_suspicious(ext_info),
             "has_ip": _has_ip(url),
             "has_at_symbol": "@" in url,
             "double_slash_path": "//" in parsed.path,
             "has_suspicious_port": _has_suspicious_port(parsed),
             "redirect_depth": redirect_depth,
             "keyword_score": round(_keyword_score(url), 4),
-            "brand_in_subdomain": _brand_in_subdomain(url, parsed),
-            "has_homograph": _has_homograph(url, parsed),
-            "domain_age_proxy": _domain_age_proxy(parsed),
+            "brand_in_subdomain": _brand_in_subdomain(url, parsed, ext_info),
+            "has_homograph": _has_homograph(url, ext_info),
+            "domain_age_proxy": _domain_age_proxy(ext_info),
             "chain_length": chain_length,
         }
 
@@ -225,7 +235,6 @@ class FeatureExtractorService:
             features["domain_age_proxy"],
             features["chain_length"],
         ]
-
 
 # ── Module-level singleton ────────────────────────────────────────────────────
 feature_extractor_service = FeatureExtractorService()

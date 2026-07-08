@@ -1,0 +1,22 @@
+Multihop URLs
+https://httpbin.org/redirect/5
+https://httpbingo.org/redirect/8
+
+Shortened URLs
+https://bit.ly/paypal-verify
+https://bit.ly/xxxxxxx
+https://bit.ly/3XYZabc
+
+Malicious URLs
+https://netmirrorapkz.app/
+http://secure-login-update.example
+http://login.example.security-check.example
+http://micr0soft.example
+http://bit.ly/example-phish
+
+Safe URLs
+https://antigravity.google/auth-success?app=antigravity-ide
+https://codeforces.com/
+https://chatgpt.com/
+https://www.nist.gov
+https://eicar.org
