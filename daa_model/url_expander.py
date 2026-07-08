@@ -11,14 +11,27 @@ import time
 
 # Known URL shortener domains
 URL_SHORTENERS = {
+    # Generic shorteners
     'bit.ly', 'tinyurl.com', 't.co', 'goo.gl', 'ow.ly',
     'is.gd', 'buff.ly', 'adf.ly', 'bit.do', 'lnkd.in',
-    'db.tt', 'qr.ae', 'adf.ly', 'cur.lv', 'ity.im',
+    'db.tt', 'qr.ae', 'cur.lv', 'ity.im',
     'q.gs', 'po.st', 'bc.vc', 'u.to', 'j.mp',
     'buzurl.com', 'cutt.us', 'u.bb', 'yourls.org',
     'prettylinkpro.com', 'scrnch.me', 'filoops.info',
     'vurl.com', 'vzturl.com', '2.gp', 'tweez.me',
-    'v.gd', 'tr.im', 'link.zip', 'short.link'
+    'v.gd', 'tr.im', 'link.zip', 'short.link',
+    'rb.gy', 'shorturl.at', 'clck.ru', 'tinycc.com',
+    # E-commerce shorteners
+    'fkrt.it',        # Flipkart
+    'amzn.to',        # Amazon
+    'amzn.in',        # Amazon India
+    'myntr.it',       # Myntra
+    'nyk.aa',         # Nykaa
+    # Social / messaging shorteners
+    'youtu.be',       # YouTube
+    'fb.me',          # Facebook
+    'wp.me',          # WordPress
+    'dlvr.it',        # dlvr.it
 }
 
 

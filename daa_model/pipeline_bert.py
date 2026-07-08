@@ -308,6 +308,31 @@ class BertPipeline:
             logit = self._model(tokens['input_ids'], tokens['attention_mask']).item()
         return float(torch.sigmoid(torch.tensor(logit / _SCALE)))
 
+    # ── Helpers ───────────────────────────────────────────────────────────────
+    @staticmethod
+    def _resolve_for_pagerank(url: str) -> str:
+        """
+        Return the URL that should be sent to Open PageRank.
+
+        PageRank only indexes main domains (flipkart.com, amazon.in, etc.).
+        Shortened URLs (fkrt.it, amzn.to, bit.ly …) have near-zero PageRank
+        because they are redirect services, not real websites.
+
+        Fix: if the input is from a known shortener, follow the redirect
+        and hand PageRank the *final* domain instead.
+        DistilBERT always receives the original URL — this method is NOT
+        used for DistilBERT scoring.
+        """
+        try:
+            from url_expander import is_shortened_url, expand_url
+            if is_shortened_url(url):
+                result = expand_url(url, max_redirects=5, timeout=5)
+                if result.get('expansion_successful') and result.get('final_url'):
+                    return result['final_url']
+        except Exception:
+            pass
+        return url
+
     # ── Main classify ────────────────────────────────────────────────────────
     def classify(self, url: str) -> dict:
         url = url.strip()
@@ -316,8 +341,11 @@ class BertPipeline:
         # ── Tier 0: Open PageRank safe oracle ────────────────────────────────
         # PageRank is a SAFE-SIDE oracle: high authority → safe fast-path.
         # It does NOT flag malicious URLs — unknown/low rank → fall through.
+        # IMPORTANT: expand shortened URLs first so we look up the real domain
+        # (e.g., flipkart.com from fkrt.it) — DistilBERT still uses `url`.
         if self._umbrella.available:
-            um = self._umbrella.lookup(url)
+            pagerank_url = self._resolve_for_pagerank(url)
+            um = self._umbrella.lookup(pagerank_url)
             umbrella_result = {
                 'domain':     um.domain,
                 'verdict':    um.verdict,
