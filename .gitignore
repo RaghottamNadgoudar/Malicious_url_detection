@@ -150,3 +150,10 @@ walkthrough_daa.md
 # Runner scripts
 run.ps1
 daa_concepts.md
+
+# Test URL lists (local scratch files)
+urls_*.txt
+
+# Learned Bloom Filter artifacts (generated, not committed)
+daa_model/backup_bloom_filter.pkl
+daa_model/lbf_stats.json

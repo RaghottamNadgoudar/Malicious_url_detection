@@ -266,7 +266,13 @@ class BertPipeline:
         checkpoint_name    = ckpt.get('checkpoint', 'distilbert-base-uncased')
 
         model = URLDistilBert()
-        model.load_state_dict(ckpt['state_dict'])
+        # assign=True: avoids "copying from non-meta to meta parameter" warnings
+        # introduced in PyTorch 2.x when loading zip-format checkpoints.
+        try:
+            model.load_state_dict(ckpt['state_dict'], assign=True)
+        except TypeError:
+            # PyTorch < 2.0 doesn't support assign= keyword; fall back silently
+            model.load_state_dict(ckpt['state_dict'])
         model.eval()
         self._model = model
 
