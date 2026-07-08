@@ -1,4 +1,0 @@
-# This file ensures the data directory is tracked by git
-# Place your CSV files here:
-# - merged_urls.csv
-# - balanced_urls.csv
