@@ -73,10 +73,11 @@ const settingsSaved   = $('settingsSaved');
   // Load current tab URL
   const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
   if (tab?.url) {
-    currentUrlText.textContent = tab.url;
-    currentUrlText.title = tab.url;
-    // Auto-scan current page
-    await runScan(tab.url, false);
+    const rootDomain = getRootDomain(tab.url);
+    currentUrlText.textContent = rootDomain;
+    currentUrlText.title = tab.url; // full URL in tooltip
+    // Auto-scan current page (root domain only)
+    await runScan(rootDomain, false);
   }
 
   renderHistory();
@@ -96,14 +97,16 @@ tabs.forEach(btn => {
 // ── Scan current page button ───────────────────────────────
 scanCurrentBtn.addEventListener('click', async () => {
   const url = currentUrlText.textContent;
-  if (url && url !== 'Loading...') await runScan(url, false);
+  if (url && url !== 'Loading...') await runScan(getRootDomain(url), false);
 });
 
 // ── Manual scan button ─────────────────────────────────────
 manualScanBtn.addEventListener('click', async () => {
-  const url = urlInput.value.trim();
-  if (!url) return;
-  const doExpand = expandFirst.checked && isShortened(url);
+  const raw = urlInput.value.trim();
+  if (!raw) return;
+  // For shortened URLs we must expand first to find the real root domain
+  const doExpand = expandFirst.checked && isShortened(raw);
+  const url = doExpand ? raw : getRootDomain(raw);
   await runScan(url, doExpand);
 });
 urlInput.addEventListener('keydown', e => {
@@ -120,12 +123,12 @@ async function runScan(url, expand) {
     let finalUrl = url;
     let chain = null;
 
-    // Step 1: expand if needed
+    // Step 1: expand if needed (shortened URLs only), then extract root domain
     if (expand) {
       try {
         const expRes = await apiFetch('/expand-url', { url });
         if (expRes.expansion_successful) {
-          finalUrl = expRes.final_url;
+          finalUrl = getRootDomain(expRes.final_url);
           chain = expRes.redirect_chain;
         }
         spinnerText.textContent = 'Scanning expanded URL...';
@@ -249,10 +252,10 @@ scanPageBtn.addEventListener('click', async () => {
 
   summaryPills.classList.remove('hidden');
 
-  // Scan each
+  // Scan each (root domain only)
   for (const { url, div } of items) {
     try {
-      const r = await apiFetch('/classify', { url });
+      const r = await apiFetch('/classify', { url: getRootDomain(url) });
       const v = r.verdict || 'unknown';
       const c = Math.round((r.confidence ?? 0) * 100);
       const dot = div.querySelector('.link-dot');
@@ -363,6 +366,19 @@ function isShortened(url) {
     const host = new URL(url.startsWith('http') ? url : 'https://'+url).hostname.replace('www.','');
     return SHORTENERS.has(host);
   } catch { return false; }
+}
+
+/**
+ * Extract root domain from a URL: strips path, query, and fragment.
+ * e.g. "https://claude.ai/chat/abc?x=1" → "https://claude.ai"
+ */
+function getRootDomain(url) {
+  try {
+    const parsed = new URL(url.startsWith('http') ? url : 'https://' + url);
+    return `${parsed.protocol}//${parsed.hostname}`;
+  } catch {
+    return url; // return as-is if parsing fails
+  }
 }
 
 function truncate(s, n) {

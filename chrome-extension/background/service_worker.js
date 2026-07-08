@@ -32,23 +32,22 @@ chrome.contextMenus.onClicked.addListener(async (info, tab) => {
 
   const { apiBase = DEFAULT_API } = await chrome.storage.local.get(['apiBase']);
 
-  // Open the popup with the URL pre-filled by sending a message
-  // (Popups can't be opened programmatically in MV3 — we store it for the popup to pick up)
-  await chrome.storage.local.set({ pendingUrl: url });
+  // Store root domain for popup to pick up
+  await chrome.storage.local.set({ pendingUrl: getRootDomain(url) });
 
-  // Optionally show a notification badge
-  await classifyAndBadge(url, tab.id, apiBase);
+  // Badge with root domain
+  await classifyAndBadge(getRootDomain(url), tab.id, apiBase);
 });
 
 // ── Tab Update: badge current page ─────────────────────────
 chrome.tabs.onActivated.addListener(async ({ tabId }) => {
   const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
-  if (tab?.url) await classifyAndBadge(tab.url, tabId);
+  if (tab?.url) await classifyAndBadge(getRootDomain(tab.url), tabId);
 });
 
 chrome.tabs.onUpdated.addListener(async (tabId, changeInfo, tab) => {
   if (changeInfo.status === 'complete' && tab.url) {
-    await classifyAndBadge(tab.url, tabId);
+    await classifyAndBadge(getRootDomain(tab.url), tabId);
   }
 });
 
@@ -65,11 +64,14 @@ async function classifyAndBadge(url, tabId, apiBase) {
     return;
   }
 
+  // Always scan root domain only
+  const rootUrl = getRootDomain(url);
+
   try {
     const res = await fetch(`${apiBase}/classify`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ url }),
+      body: JSON.stringify({ url: rootUrl }),
       signal: AbortSignal.timeout(8000),
     });
     if (!res.ok) throw new Error('API error');
@@ -99,4 +101,17 @@ async function classifyAndBadge(url, tabId, apiBase) {
 function setBadge(tabId, text, colour) {
   chrome.action.setBadgeText({ text, tabId });
   chrome.action.setBadgeBackgroundColor({ color: colour, tabId });
+}
+
+/**
+ * Extract root domain from a URL: strips path, query, and fragment.
+ * e.g. "https://claude.ai/chat/abc?x=1" → "https://claude.ai"
+ */
+function getRootDomain(url) {
+  try {
+    const parsed = new URL(url.startsWith('http') ? url : 'https://' + url);
+    return `${parsed.protocol}//${parsed.hostname}`;
+  } catch {
+    return url;
+  }
 }
