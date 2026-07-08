@@ -66,7 +66,7 @@ logger = logging.getLogger(__name__)
 # ── API constants ─────────────────────────────────────────────────────────────
 _BASE_URL   = "https://urlhaus-api.abuse.ch/v1"
 _TOKEN_ENV  = "URL_HAUS_API"
-_DEFAULT_TIMEOUT = 3.0   # seconds — fail fast to not stall DistilBERT
+_DEFAULT_TIMEOUT = 8.0   # seconds — increased from 3s (URLhaus can be slow)
 _CACHE_TTL  = 600        # seconds — 10-minute TTL per domain
 
 # ── Spamhaus DBL labels that are definitively bad ─────────────────────────────
@@ -246,13 +246,15 @@ class UmbrellaClient:
             host_data = self._query_host(domain)
             latency_ms = round((time.monotonic() - t0) * 1000, 1)
 
-            if host_data.get("query_status") == "ok":
+            # URLhaus /host/ returns "is_host" (not "ok") when the domain/IP is found
+            if host_data.get("query_status") == "is_host":
                 return self._build_result_from_host(domain, host_data, latency_ms)
 
             # host not in URLhaus — try exact URL lookup as secondary check
             url_data = self._query_url(original_url)
             latency_ms = round((time.monotonic() - t0) * 1000, 1)
 
+            # URLhaus /url/ returns "ok" when the URL is found
             if url_data.get("query_status") == "ok":
                 return self._build_result_from_url(domain, url_data, latency_ms)
 
@@ -367,11 +369,24 @@ class UmbrellaClient:
         elif conf >= 0.35:
             verdict = "suspicious"
 
+        # Map URLhaus fields to the standard security interface expected by
+        # pipeline_bert.py and the frontend (UmbrellaTierCard.tsx).
+        # Fields without a URLhaus equivalent get safe-defaults.
+        botnet_flag = "botnet_cc_domain" in spamhaus
+        spam_score  = 1.0 if spamhaus in _SPAMHAUS_MALICIOUS else 0.0
+
         return UmbrellaResult(
             domain     = domain,
             status     = status,
             categories = categories,
             security   = {
+                # Standard interface fields (consumed by frontend + pipeline_bert)
+                "dga_score":    round(conf * 0.6, 4) if verdict == "malicious" else 0.0,
+                "spam":         spam_score,
+                "fastflux":     False,           # not reported by URLhaus
+                "botnet":       botnet_flag,
+                "securerank2":  round((1.0 - conf) * 100, 1),
+                # URLhaus-specific extras (informational)
                 "url_count":    url_count,
                 "online_count": online_count,
                 "spamhaus_dbl": spamhaus,
@@ -420,11 +435,21 @@ class UmbrellaClient:
             verdict = "malicious"
             status  = -1
 
+        botnet_flag = "botnet_cc_domain" in spamhaus
+        spam_score  = 1.0 if spamhaus in _SPAMHAUS_MALICIOUS else 0.0
+
         return UmbrellaResult(
             domain     = domain,
             status     = status,
             categories = categories,
             security   = {
+                # Standard interface fields
+                "dga_score":    round(conf * 0.6, 4) if verdict == "malicious" else 0.0,
+                "spam":         spam_score,
+                "fastflux":     False,
+                "botnet":       botnet_flag,
+                "securerank2":  round((1.0 - conf) * 100, 1),
+                # URLhaus-specific extras
                 "url_status":   url_status,
                 "spamhaus_dbl": spamhaus,
                 "surbl":        surbl,
@@ -459,13 +484,17 @@ def lookup(url: str) -> UmbrellaResult:
 
 # ── CLI smoke-test ────────────────────────────────────────────────────────────
 if __name__ == "__main__":
-    import sys, json
+    import sys
+    import io
+
+    # Force UTF-8 output on Windows so box-drawing / emoji chars don't crash.
+    sys.stdout = io.TextIOWrapper(sys.stdout.buffer, encoding="utf-8", errors="replace")
 
     token = os.getenv(_TOKEN_ENV)
     if not token:
         print(f"\n  [!] {_TOKEN_ENV} is not set.")
         print(f"  To enable URLhaus lookups, add to daa_model/.env:")
-        print(f"    URLHAUS_AUTH_KEY=your-auth-key-here")
+        print(f"    {_TOKEN_ENV}=your-auth-key-here")
         print(f"  Get a free key at: https://auth.abuse.ch/\n")
 
     client = UmbrellaClient()
@@ -474,19 +503,26 @@ if __name__ == "__main__":
         "https://google.com",
         "http://paypal-secure.tk",
         "http://phishing-login.ml",
-        "http://vektorex.com",          # known URLhaus host
+        "http://77.73.133.113/lego/mine.exe",   # known URLhaus malware URL
     ]
 
-    print(f"\n{'Domain':<40} {'Status':>7}  {'Verdict':<12} {'Conf':>6}  {'Src':<10}  {'ms':>6}")
-    print("─" * 90)
+    SEP = "-" * 90
+    print(f"\n{'Domain':<40} {'Status':>9}  {'Verdict':<12} {'Conf':>6}  {'Src':<10}  {'ms':>6}")
+    print(SEP)
     for url in urls:
         r = client.lookup(url)
-        status_str = {-1: "MALICIOUS", 1: "SAFE", 0: "UNKNOWN", None: "–"}[r.status]
+        status_str = {-1: "MALICIOUS", 1: "SAFE", 0: "UNKNOWN", None: "-"}[r.status]
         print(f"{r.domain:<40} {status_str:>9}  {r.verdict:<12} {r.confidence:>6.1%}"
               f"  {r.source:<10}  {r.latency_ms:>6.1f}ms")
         if r.categories:
-            print(f"  Tags: {list(r.categories.keys())[:5]}")
+            print(f"  Tags    : {list(r.categories.keys())[:5]}")
         if r.security:
-            print(f"  Security: {r.security}")
+            sec = r.security
+            print(f"  Security: dga={sec.get('dga_score',0):.3f}  "
+                  f"spam={sec.get('spam',0):.2f}  "
+                  f"botnet={sec.get('botnet',False)}  "
+                  f"fastflux={sec.get('fastflux',False)}  "
+                  f"spamhaus='{sec.get('spamhaus_dbl','?')}'")
         if r.error:
-            print(f"  Error: {r.error}")
+            print(f"  Error   : {r.error}")
+    print(SEP)
