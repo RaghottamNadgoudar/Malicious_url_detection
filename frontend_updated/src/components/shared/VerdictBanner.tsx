@@ -50,6 +50,7 @@ const VERDICT_CONFIG = {
 } as const;
 
 const TIER_LABELS: Record<ExitTier, string> = {
+  'T0-URLhaus':    'Tier 0 — URLhaus Threat Intel',
   'T0-Umbrella':   'Tier 0 — Cisco Umbrella',
   'T1-Whitelist':  'Tier 1 — Whitelist',
   'T2-DistilBERT': 'Tier 2 — DistilBERT',

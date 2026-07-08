@@ -1,5 +1,5 @@
 export type Verdict = 'safe' | 'suspicious' | 'malicious' | 'error';
-export type ExitTier = 'T0-Umbrella' | 'T1-Whitelist' | 'T2-DistilBERT' | 'T3-HardSignal';
+export type ExitTier = 'T0-URLhaus' | 'T0-Umbrella' | 'T1-Whitelist' | 'T2-DistilBERT' | 'T3-HardSignal';
 
 // ── Feature set — exact 14-field struct from pipeline_bert._feature_summary ──
 export interface DaaFeatures {
@@ -19,21 +19,18 @@ export interface DaaFeatures {
   registrable_domain: string;
 }
 
-// ── Umbrella result — from cisco_umbrella.UmbrellaResult ─────────────────────
+// ── Threat intel result — from cisco_umbrella.UmbrellaResult (works for URLhaus too) ──
 export interface DaaUmbrellaResult {
   domain:     string;
-  verdict:    'malicious' | 'safe' | 'unknown' | 'unavailable';
+  verdict:    'malicious' | 'suspicious' | 'safe' | 'unknown' | 'unavailable';
   status:     -1 | 0 | 1 | null;
   confidence: number;
-  categories: Record<string, number>;   // up to 8 entries
-  security: {
-    dga_score:   number;
-    spam:        number;
-    fastflux:    boolean;
-    botnet:      boolean;
-    securerank2: number;
-  };
-  source:     'umbrella' | 'cached' | 'unavailable';
+  categories: Record<string, number>;   // URLhaus: tags, Umbrella: categories
+  // Flexible security bag — fields vary by backend:
+  //   URLhaus:  { url_count, online_count, spamhaus_dbl, surbl, url_status? }
+  //   Umbrella: { dga_score, spam, fastflux, botnet, securerank2 }
+  security: Record<string, unknown>;
+  source:     'urlhaus' | 'umbrella' | 'cached' | 'unavailable';
   latency_ms: number;
 }
 

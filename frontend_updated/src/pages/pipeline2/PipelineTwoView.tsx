@@ -185,7 +185,7 @@ export default function PipelineTwoView() {
           <div className="grid gap-4">
             <UmbrellaTierCard
               umbrella={result.umbrella}
-              isDeciding={exitTier === 'T0-Umbrella'}
+              isDeciding={exitTier === 'T0-URLhaus' || exitTier === 'T0-Umbrella'}
             />
             <WhitelistTierCard
               reasoning={result.reasoning}
@@ -195,7 +195,7 @@ export default function PipelineTwoView() {
               bertScore={result.expert_scores.distilbert}
               finalConf={result.confidence}
               isDeciding={exitTier === 'T2-DistilBERT'}
-              skipped={exitTier === 'T0-Umbrella' || exitTier === 'T1-Whitelist'}
+              skipped={exitTier === 'T0-URLhaus' || exitTier === 'T0-Umbrella' || exitTier === 'T1-Whitelist'}
             />
             <HardSignalTierCard
               hardScore={result.hard_score}
