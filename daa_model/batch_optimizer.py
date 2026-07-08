@@ -50,6 +50,7 @@ from urllib.parse import urlparse, unquote
 from dataclasses import dataclass, field
 from typing import Optional
 import tldextract
+from trusted_suffixes import TRUSTED_SUFFIXES
 
 # ─────────────────────────────────────────────────────────────────────────────
 # Data model
@@ -82,16 +83,15 @@ SUSPICIOUS_TLDS = {
     'racing','date','download','stream','gdn','accountant','trade',
     'cc','pw','su','zip','icu','info',
 }
-TRUSTED_SUFFIXES = {
-    'edu.in','ac.in','gov.in','sch.in','res.in',
-    'ac.uk','gov.uk','ac.au','gov.au',
-}
+# TRUSTED_SUFFIXES imported from trusted_suffixes.py (405 PSL entries)
 WHITELIST_DOMAINS = {
     'google.com','youtube.com','github.com','wikipedia.org','amazon.com',
     'microsoft.com','apple.com','stackoverflow.com','linkedin.com',
     'reddit.com','twitter.com','x.com','facebook.com','instagram.com',
     'openai.com','huggingface.co','pypi.org','npmjs.com','cloudflare.com',
     'rvce.edu.in','iitb.ac.in','iitm.ac.in','iisc.ac.in','iimb.ac.in',
+    'msrit.edu','bmsce.ac.in','pes.edu','nitte.edu.in','manipal.edu',
+    'nitk.ac.in','nitw.ac.in','sjce.ac.in','christuniversity.in',
     'nic.in','india.gov.in','gov.in','nasa.gov','cdc.gov','nih.gov',
 }
 PHISHING_KEYWORDS = [

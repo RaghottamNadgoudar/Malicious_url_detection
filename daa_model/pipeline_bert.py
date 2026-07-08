@@ -45,6 +45,7 @@ import torch.nn as nn
 import tldextract
 from transformers import DistilBertTokenizer, DistilBertModel
 import cisco_umbrella as umbrella
+from trusted_suffixes import is_trusted_suffix
 
 logger = logging.getLogger(__name__)
 
@@ -96,6 +97,8 @@ WHITELISTED_DOMAINS = {
     'rvce.edu.in','iitb.ac.in','iitd.ac.in','iitm.ac.in','iisc.ac.in',
     'iimb.ac.in','bits-pilani.ac.in','vtu.ac.in','bbc.co.uk',
     'gov.in','nic.in','india.gov.in','irctc.co.in','sbi.co.in',
+    'msrit.edu','bmsce.ac.in','pes.edu','nitte.edu.in','manipal.edu',
+    'christuniversity.in','sjce.ac.in','nitk.ac.in','nitw.ac.in',
 }
 
 
@@ -179,10 +182,10 @@ def is_whitelisted(url: str) -> bool:
         if bare in WHITELISTED_DOMAINS: return True
         for domain in WHITELISTED_DOMAINS:
             if host.endswith('.' + domain): return True
-        # Trusted institutional suffixes (Indian / UK / AU government & academia)
+        # Trusted institutional suffixes — global education, government & academia
+        # Sourced from Mozilla Public Suffix List (405 entries in trusted_suffixes.py)
         ext = tldextract.extract(url)
-        if ext.suffix in ('ac.in', 'edu.in', 'gov.in', 'sch.in', 'res.in',
-                          'ac.uk', 'gov.uk', 'ac.au', 'gov.au'):
+        if is_trusted_suffix(ext.suffix):
             return True
     except Exception:
         pass
