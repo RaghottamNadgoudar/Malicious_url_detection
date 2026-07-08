@@ -1,0 +1,147 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>DAA Shield</title>
+  <link rel="stylesheet" href="popup.css" />
+</head>
+<body>
+  <!-- Header -->
+  <header class="header">
+    <div class="header-left">
+      <img src="../icons/icon32.png" class="logo" alt="DAA Shield" />
+      <div>
+        <div class="app-name">DAA Shield</div>
+        <div class="app-sub">URL Security Scanner</div>
+      </div>
+    </div>
+    <div class="header-right">
+      <button class="icon-btn" id="settingsBtn" title="Settings">⚙</button>
+    </div>
+  </header>
+
+  <!-- Tab Bar -->
+  <div class="tabs">
+    <button class="tab active" data-tab="scan">🔍 Scan URL</button>
+    <button class="tab" data-tab="page">🌐 Page Links</button>
+    <button class="tab" data-tab="history">🕒 History</button>
+  </div>
+
+  <!-- ── TAB: SCAN URL ─────────────────────────────────── -->
+  <div class="tab-content active" id="tab-scan">
+
+    <!-- Current page auto-result -->
+    <div class="section-label">Current Page</div>
+    <div class="current-url-bar" id="currentUrlBar">
+      <span class="current-url-text" id="currentUrlText">Loading...</span>
+      <button class="scan-btn-sm" id="scanCurrentBtn">Scan</button>
+    </div>
+
+    <!-- Result card -->
+    <div class="result-card hidden" id="resultCard">
+      <div class="verdict-row">
+        <div class="verdict-badge" id="verdictBadge">—</div>
+        <div class="verdict-meta">
+          <div class="verdict-url" id="verdictUrl"></div>
+          <div class="verdict-detail" id="verdictDetail"></div>
+        </div>
+        <div class="confidence-ring-wrap">
+          <svg class="conf-ring" viewBox="0 0 36 36">
+            <circle cx="18" cy="18" r="15.9" fill="none" stroke="#e5e7eb" stroke-width="3"/>
+            <circle cx="18" cy="18" r="15.9" fill="none" stroke-width="3"
+              id="confArc"
+              stroke-dasharray="0 100"
+              stroke-linecap="round"
+              transform="rotate(-90 18 18)"/>
+          </svg>
+          <span class="conf-pct" id="confPct">0%</span>
+        </div>
+      </div>
+
+      <!-- Tier breakdown -->
+      <div class="tier-row" id="tierRow">
+        <div class="tier-chip" id="tierChip">—</div>
+        <div class="latency" id="latencyBadge">—</div>
+      </div>
+
+      <!-- Redirect chain (shown only if shortened/redirected) -->
+      <div class="redirect-section hidden" id="redirectSection">
+        <div class="subsection-title">↪ Redirect Chain</div>
+        <ol class="redirect-chain" id="redirectChain"></ol>
+      </div>
+
+      <!-- Feature pills -->
+      <details class="feature-details">
+        <summary>URL Features</summary>
+        <div class="feature-grid" id="featureGrid"></div>
+      </details>
+    </div>
+
+    <!-- Manual scan input -->
+    <div class="section-label" style="margin-top:10px">Scan Any URL</div>
+    <div class="input-row">
+      <input type="text" class="url-input" id="urlInput" placeholder="https://example.com or bit.ly/..." />
+      <button class="btn-primary" id="manualScanBtn">Go</button>
+    </div>
+    <div class="checkbox-row">
+      <label class="checkbox-label">
+        <input type="checkbox" id="expandFirst" checked />
+        Expand shortened URLs first
+      </label>
+    </div>
+
+    <!-- Spinner / error -->
+    <div class="spinner hidden" id="spinner">
+      <div class="spin-ring"></div>
+      <span id="spinnerText">Scanning...</span>
+    </div>
+    <div class="error-box hidden" id="errorBox"></div>
+  </div>
+
+  <!-- ── TAB: PAGE LINKS ──────────────────────────────── -->
+  <div class="tab-content hidden" id="tab-page">
+    <div class="page-scan-header">
+      <div>
+        <div class="section-label" style="margin:0">Links on this page</div>
+        <div class="page-scan-sub" id="pageLinkCount">Click "Scan All" to begin</div>
+      </div>
+      <button class="btn-primary" id="scanPageBtn">Scan All</button>
+    </div>
+
+    <!-- Summary pills -->
+    <div class="summary-pills hidden" id="summaryPills">
+      <div class="pill pill-safe">✅ <span id="safeCount">0</span> Safe</div>
+      <div class="pill pill-sus">⚠️ <span id="susCount">0</span> Suspicious</div>
+      <div class="pill pill-mal">🚨 <span id="malCount">0</span> Malicious</div>
+    </div>
+
+    <!-- Link list -->
+    <div class="link-list" id="linkList"></div>
+  </div>
+
+  <!-- ── TAB: HISTORY ─────────────────────────────────── -->
+  <div class="tab-content hidden" id="tab-history">
+    <div class="history-header">
+      <div class="section-label" style="margin:0">Recent Scans</div>
+      <button class="btn-ghost" id="clearHistoryBtn">Clear</button>
+    </div>
+    <div class="history-list" id="historyList"></div>
+    <div class="history-empty hidden" id="historyEmpty">No scans yet.</div>
+  </div>
+
+  <!-- ── SETTINGS PANEL ─────────────────────────────────── -->
+  <div class="settings-panel hidden" id="settingsPanel">
+    <div class="settings-header">
+      <span>Settings</span>
+      <button class="icon-btn" id="closeSettingsBtn">✕</button>
+    </div>
+    <label class="settings-label">API Base URL</label>
+    <input type="text" class="url-input" id="apiUrlInput" placeholder="http://localhost:8002" />
+    <button class="btn-primary" style="width:100%;margin-top:8px" id="saveSettingsBtn">Save</button>
+    <div class="settings-saved hidden" id="settingsSaved">✓ Saved</div>
+  </div>
+
+  <script src="popup.js"></script>
+</body>
+</html>
