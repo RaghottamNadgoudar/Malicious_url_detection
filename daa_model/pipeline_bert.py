@@ -3,10 +3,10 @@ pipeline_bert.py — DistilBERT + Cisco Umbrella Malicious URL Pipeline
 ======================================================================
 Architecture (4-tier, outermost wins):
 
-  Tier 0 — Cisco Umbrella Investigate API
-            Real-time threat intelligence — blocks known-bad domains
-            instantly and clears known-good ones with zero DistilBERT
-            overhead. Gracefully skipped when token is absent/timeout.
+  Tier 0 — URLhaus (abuse.ch) threat intelligence
+            Real-time malware URL database — instantly blocks known-bad
+            domains/URLs and lets DistilBERT focus on unknowns.
+            Free API; gracefully skipped when Auth-Key is absent/timeout.
 
   Tier 1 — Local whitelist + trusted-suffix rules
             Hardcoded safe domains (rvce.edu.in, gov.in, github.com …)
@@ -25,9 +25,10 @@ Usage:
     pipe = BertPipeline()
     result = pipe.classify("http://paypal-secure.tk/login")
 
-Umbrella setup:
-    export UMBRELLA_INVESTIGATE_TOKEN="<your-token>"
-    # Get token: Umbrella dashboard → Investigate → API Access
+URLhaus setup:
+    Add to daa_model/.env:
+        URLHAUS_AUTH_KEY=<your-key>
+    Get a free key at: https://auth.abuse.ch/
 """
 
 import os, re, math, zipfile, io, logging
@@ -237,7 +238,7 @@ class BertPipeline:
     """
     4-tier malicious URL detection pipeline.
 
-    Tier 0 — Cisco Umbrella Investigate (threat intelligence, pre-ML)
+    Tier 0 — URLhaus (abuse.ch) threat intelligence (free, pre-ML)
     Tier 1 — Local whitelist + trusted-suffix rules  (~0 ms)
     Tier 2 — DistilBERT [CLS] classifier             (~18–35 ms)
     Tier 3 — Rule-based hard-signal supplement       (~0 ms)
@@ -251,13 +252,13 @@ class BertPipeline:
     def __init__(self, quiet: bool = False):
         self._quiet = quiet
 
-        # Initialise Umbrella client once (reads UMBRELLA_INVESTIGATE_TOKEN)
+        # Initialise URLhaus client once (reads URLHAUS_AUTH_KEY from .env)
         self._umbrella = umbrella.get_client()
         if self._umbrella.available:
-            self._log("Tier-0: Cisco Umbrella Investigate enabled ✓")
+            self._log("Tier-0: URLhaus (abuse.ch) threat intel enabled ✓")
         else:
-            self._log("Tier-0: Cisco Umbrella not configured "
-                      "(set UMBRELLA_INVESTIGATE_TOKEN to enable).")
+            self._log("Tier-0: URLhaus not configured "
+                      "(add URLHAUS_AUTH_KEY to daa_model/.env to enable).")
 
         self._log("Loading DistilBERT classifier...")
         ckpt = _zip_and_load(EXPERT2_DIR)
@@ -315,30 +316,30 @@ class BertPipeline:
             }
 
             if um.verdict == 'malicious':
-                # Umbrella has this domain in its threat DB → hard block
+                # URLhaus has this domain in its threat DB → hard block
                 return self._build_result(
                     url,
-                    confidence   = max(um.confidence, 0.92),
+                    confidence   = max(um.confidence, 0.90),
                     bert_prob    = None,
                     verdict      = 'malicious',
                     reasoning    = (
-                        f"Cisco Umbrella: MALICIOUS (status={um.status}, "
+                        f"URLhaus: MALICIOUS (status={um.status}, "
                         f"conf={um.confidence:.1%}, "
-                        f"cats={list(um.categories.keys())[:3]}). "
+                        f"tags={list(um.categories.keys())[:3]}). "
                         f"DistilBERT skipped."
                     ),
                     umbrella_result = umbrella_result,
                 )
 
             if um.verdict == 'safe' and um.source != 'unavailable':
-                # Umbrella has explicitly cleared this domain → safe fast-path
+                # URLhaus explicitly cleared this domain → safe fast-path
                 return self._build_result(
                     url,
                     confidence   = 0.02,
                     bert_prob    = None,
                     verdict      = 'safe',
                     reasoning    = (
-                        f"Cisco Umbrella: SAFE (status={um.status}). "
+                        f"URLhaus: SAFE (not in malware DB). "
                         f"DistilBERT skipped."
                     ),
                     umbrella_result = umbrella_result,
@@ -439,7 +440,7 @@ if __name__ == "__main__":
 
         # Which tier decided the verdict?
         if um and um['verdict'] in ('malicious', 'safe') and um['source'] != 'unavailable':
-            tier = f"T0-Umbrella ({um['source']})"
+            tier = f"T0-URLhaus ({um['source']})"
         elif 'Whitelisted' in r['reasoning']:
             tier = "T1-Whitelist"
         else:

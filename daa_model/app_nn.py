@@ -154,7 +154,7 @@ def classify_detail(req: URLRequest):
         reasoning = result.get('reasoning', '')
         umbrella  = result.get('umbrella')
         if umbrella and umbrella.get('verdict') in ('malicious', 'safe') and umbrella.get('source') != 'unavailable':
-            exit_tier = 'T0-Umbrella'
+            exit_tier = 'T0-URLhaus'
         elif 'Whitelisted' in reasoning:
             exit_tier = 'T1-Whitelist'
         elif 'Hard signals override' in reasoning or 'Moderate hard signals' in reasoning:
