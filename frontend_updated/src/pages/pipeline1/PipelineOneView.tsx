@@ -81,7 +81,8 @@ export default function PipelineOneView() {
             }));
           }
           else if (evt.event === 'url_error') {
-            pushLog(`  ✗ Error [${evt.index + 1}]: ${evt.url.slice(0, 50)}`);
+            const reason = (evt as any).error ? ` — ${String((evt as any).error).slice(0, 80)}` : '';
+            pushLog(`  ✗ Error [${evt.index + 1}]: ${evt.url.slice(0, 50)}${reason}`);
           }
           else if (evt.event === 'complete') {
             pushLog(`✓ Complete — ${evt.total_input} URLs in ${evt.elapsed_ms.toFixed(0)} ms`);

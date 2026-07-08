@@ -40,6 +40,16 @@ os.environ.setdefault("TRANSFORMERS_OFFLINE", "1")   # use local HF cache only
 os.environ.setdefault("HF_DATASETS_OFFLINE", "1")
 os.environ.setdefault("KMP_DUPLICATE_LIB_OK", "TRUE")  # OMP dylib coexistence
 
+# Suppress PyTorch 2.x meta-parameter warnings that fire on every load_state_dict
+# when a model is initialised with from_pretrained (which uses meta tensors).
+# These are cosmetic — the model loads and runs correctly without assign=True.
+import warnings
+warnings.filterwarnings(
+    "ignore",
+    message=".*copying from a non-meta parameter.*",
+    category=UserWarning,
+)
+
 import numpy as np
 import torch
 import torch.nn as nn
@@ -266,13 +276,11 @@ class BertPipeline:
         checkpoint_name    = ckpt.get('checkpoint', 'distilbert-base-uncased')
 
         model = URLDistilBert()
-        # assign=True: avoids "copying from non-meta to meta parameter" warnings
-        # introduced in PyTorch 2.x when loading zip-format checkpoints.
-        try:
-            model.load_state_dict(ckpt['state_dict'], assign=True)
-        except TypeError:
-            # PyTorch < 2.0 doesn't support assign= keyword; fall back silently
-            model.load_state_dict(ckpt['state_dict'])
+        # Warnings about meta-parameter copying are suppressed at module level
+        # (see warnings.filterwarnings above). Do NOT pass assign=True here —
+        # it causes device mismatch on Apple Silicon MPS when from_pretrained
+        # places tensors on MPS while the checkpoint is loaded with map_location='cpu'.
+        model.load_state_dict(ckpt['state_dict'])
         model.eval()
         self._model = model
 
