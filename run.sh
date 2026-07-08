@@ -67,18 +67,20 @@ echo ""
 # ── Backend ──────────────────────────────────────────────────
 log "Starting backend (FastAPI on :8002)..."
 
-# Activate conda environment if available
-if [ -f "/opt/homebrew/Caskroom/miniforge/base/etc/profile.d/conda.sh" ]; then
-    source "/opt/homebrew/Caskroom/miniforge/base/etc/profile.d/conda.sh"
-    conda activate tf-metal 2>/dev/null || warn "Could not activate tf-metal conda env, using system Python."
+# ── Resolve Python / uvicorn from conda env ──────────────────
+CONDA_ENV_PATH="/opt/homebrew/Caskroom/miniforge/base/envs/tf-metal"
+if [ -f "$CONDA_ENV_PATH/bin/uvicorn" ]; then
+    UVICORN="$CONDA_ENV_PATH/bin/uvicorn"
+    ok "Using tf-metal conda env: $CONDA_ENV_PATH"
 else
-    warn "Conda not found, using system Python."
+    UVICORN="uvicorn"
+    warn "tf-metal conda env not found, falling back to system uvicorn."
 fi
 
 export KMP_DUPLICATE_LIB_OK=TRUE
 
 cd "$BACKEND_DIR"
-uvicorn app_nn:app --host 0.0.0.0 --port 8002 --log-level warning &
+$UVICORN app_nn:app --host 0.0.0.0 --port 8002 --log-level warning &
 BACKEND_PID=$!
 ok "Backend started (PID $BACKEND_PID)"
 
