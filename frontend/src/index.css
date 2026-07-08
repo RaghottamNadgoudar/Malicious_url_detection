@@ -191,4 +191,83 @@
     0%, 100% { opacity: 1; }
     50%       { opacity: 0; }
   }
+
+  /* Cybersecurity Dashboard Stage Themes and Animations */
+  .dashboard-dark {
+    background-color: #070d1a;
+    color: #e2e8f0;
+  }
+
+  /* Stage state styling */
+  .stage-card {
+    transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+  }
+  .stage-card-locked {
+    opacity: 0.3;
+    pointer-events: none;
+    filter: grayscale(80%);
+  }
+  .stage-card-active {
+    opacity: 1;
+    border-color: #3b82f6;
+    box-shadow: 0 0 15px rgba(59, 130, 246, 0.15);
+  }
+  .stage-card-done {
+    opacity: 0.85;
+    border-color: #10b981;
+  }
+
+  /* SVG Line animations */
+  .animate-draw-path {
+    stroke-dasharray: 8;
+    animation: drawPath 30s linear infinite;
+  }
+  @keyframes drawPath {
+    to {
+      stroke-dashoffset: -1000;
+    }
+  }
+
+  /* Neuron pulse */
+  .neuron-pulse {
+    animation: neuronPulse 2s infinite ease-in-out;
+  }
+  @keyframes neuronPulse {
+    0%, 100% {
+      transform: scale(1);
+      filter: drop-shadow(0 0 2px rgba(59, 130, 246, 0.5));
+    }
+    50% {
+      transform: scale(1.15);
+      filter: drop-shadow(0 0 8px rgba(59, 130, 246, 0.9));
+    }
+  }
+
+  /* Bit array flipping */
+  .bit-flip {
+    animation: bitFlip 0.6s cubic-bezier(0.4, 0, 0.2, 1);
+  }
+  @keyframes bitFlip {
+    0% {
+      transform: rotateY(0deg);
+    }
+    100% {
+      transform: rotateY(180deg);
+    }
+  }
+
+  /* Heap element swapping */
+  .heap-swap-active {
+    animation: heapSwap 1s infinite ease-in-out;
+  }
+  @keyframes heapSwap {
+    0%, 100% {
+      transform: translateY(0);
+    }
+    50% {
+      transform: translateY(-5px);
+      box-shadow: 0 0 8px #f59e0b;
+    }
+  }
 }
+

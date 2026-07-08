@@ -1,21 +1,12 @@
-import React, { useState, useRef } from 'react';
+import React, { useState } from 'react';
 import { Search, Link2, Shield, Zap, AlertTriangle, Clipboard, ChevronRight } from 'lucide-react';
 import type { AnalysisState } from '../types/analysis';
-import { analyzeUrl } from '../services/api';
+import { useNavigate } from 'react-router-dom';
 
 interface Props {
   onResult: (state: AnalysisState) => void;
   analysisState: AnalysisState;
 }
-
-const STEPS = [
-  { text: 'Expanding URL & tracing redirects...', icon: '🔗' },
-  { text: 'Running BFS/DFS graph traversal...', icon: '⚙️' },
-  { text: 'Applying Boyer-Moore pattern matching...', icon: '🔍' },
-  { text: 'Computing Shannon entropy scores...', icon: '📊' },
-  { text: 'Neural network classification...', icon: '🤖' },
-  { text: 'Generating threat score via Dijkstra...', icon: '🎯' },
-];
 
 const SAMPLE_URLS = [
   { url: 'https://github.com', label: 'Safe — GitHub', type: 'safe' },
@@ -26,41 +17,16 @@ const SAMPLE_URLS = [
 
 export default function URLScanner({ onResult, analysisState }: Props) {
   const [url, setUrl] = useState('');
-  const [stepIdx, setStepIdx] = useState(0);
-  const intervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
-  const isLoading = analysisState.status === 'loading';
-
-  const startStepCycle = () => {
-    let i = 0;
-    setStepIdx(0);
-    intervalRef.current = setInterval(() => {
-      i = (i + 1) % STEPS.length;
-      setStepIdx(i);
-    }, 1100);
-  };
-
-  const stopStepCycle = () => {
-    if (intervalRef.current) clearInterval(intervalRef.current);
-  };
+  const navigate = useNavigate();
+  const isLoading = false;
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!url.trim() || isLoading) return;
-    startStepCycle();
-    onResult({ status: 'loading', step: STEPS[0].text });
-    try {
-      const data = await analyzeUrl({ url: url.trim(), follow_redirects: true });
-      stopStepCycle();
-      onResult({ status: 'success', data });
-    } catch (err: any) {
-      stopStepCycle();
-      const message =
-        err?.response?.data?.detail ||
-        err?.message ||
-        'Analysis failed. Please try again.';
-      onResult({ status: 'error', message });
-    }
+    if (!url.trim()) return;
+    navigate(`/analysis?url=${encodeURIComponent(url.trim())}`);
   };
+
+
 
   const pasteFromClipboard = async () => {
     try {

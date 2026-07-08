@@ -4,15 +4,17 @@ import Navbar from './components/Navbar';
 import LandingPage from './components/LandingPage';
 import ResultsDashboard from './components/ResultsDashboard';
 import ThreatDashboard from './components/ThreatDashboard';
+import { BrowserRouter, Routes, Route } from 'react-router-dom';
+import AnalysisDashboard from './pages/AnalysisDashboard';
 
-export default function App() {
+function HomeView() {
   const [state, setState] = useState<AnalysisState>({ status: 'idle' });
   const [showDashboard, setShowDashboard] = useState(false);
 
   const handleReset = () => setState({ status: 'idle' });
 
   return (
-    <div className="min-h-screen bg-white text-gray-900">
+    <div className="min-h-screen bg-[#ffffff] text-gray-900">
       <Navbar
         onReset={state.status === 'success' ? handleReset : undefined}
         onDashboard={() => setShowDashboard(v => !v)}
@@ -33,3 +35,15 @@ export default function App() {
     </div>
   );
 }
+
+export default function App() {
+  return (
+    <BrowserRouter>
+      <Routes>
+        <Route path="/" element={<HomeView />} />
+        <Route path="/analysis" element={<AnalysisDashboard />} />
+      </Routes>
+    </BrowserRouter>
+  );
+}
+
