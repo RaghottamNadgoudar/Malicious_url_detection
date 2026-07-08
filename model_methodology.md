@@ -1,129 +1,115 @@
 # Malicious URL Detection Pipeline — Comprehensive Methodology
 
-This document outlines the detailed working, mathematical logic, algorithms, and architectural flow of the **Hybrid Malicious URL Detection System**. The system is split into two logical phases: **Phase A (Redirect Resolution)** and **Phase B (Multi-Tier Classification)**.
+This document outlines the detailed working, mathematical logic, algorithms, and architectural flow of the **Hybrid Malicious URL Detection System**. The system processes URLs through a multi-tier decision cascade designed to balance speed, cost, and accuracy.
 
 ---
 
 ## 1. High-Level Architectural Flow
 
-```
+```text
                   ┌──────────────────────────────┐
                   │       Incoming URL(s)        │
                   └──────────────┬───────────────┘
                                  │
                                  ▼
-                  ┌──────────────────────────────┐
-                  │ Phase A: Redirect Resolution │
-                  │  (url_expander.py / hops)    │
-                  └──────────────┬───────────────┘
+                 ┌───────────────────────────────┐
+                 │  Tier 0: Open PageRank Oracle │
+                 │   (Domain Authority Check)    │
+                 └───────────────┬───────────────┘
+                     │           │
+              [Safe] │           │ [Unknown/Low Authority]
+                     ▼           ▼
+             ┌───────┴───────┐   ┌───────────────────────────────┐
+             │               │   │ Tier 1: Local Whitelist &     │
+             │   Exit Safe   │◄──┤ Trusted Suffix Rules          │
+             │               │   └───────────────┬───────────────┘
+             └───────────────┘                   │
+                                                 │ [Not Whitelisted]
+                                                 ▼
+                 ┌───────────────────────────────┐
+                 │ Tier 2: Neural Classifier     │
+                 │ (DistilBERT [CLS] scoring)    │
+                 └───────────────┬───────────────┘
                                  │
                                  ▼
-                  ┌──────────────────────────────┐
-                  │ Phase B: Multi-Tier Engine   │
-                  │  (cisco_umbrella / app_nn)   │
-                  └──────────────┬───────────────┘
+                 ┌───────────────────────────────┐
+                 │ Tier 3: Hard Signal Supplement│
+                 │ (Structural Heuristics Boost) │
+                 └───────────────┬───────────────┘
                                  │
-         ┌───────────────────────┼───────────────────────┐
-         ▼                       ▼                       ▼
-┌─────────────────┐     ┌─────────────────┐     ┌─────────────────┐
-│ Tier 0: Threat  │     │  Tier 1: Local  │     │ Tier 2: Neural  │
-│      Intel      │     │    Whitelist    │     │   Classifier    │
-│ (URLhaus Cache) │     │ (O(1) Set Check)│     │  (DistilBERT)   │
-└────────┬────────┘     └────────┬────────┘     └────────┬────────┘
-         │                       │                       │
-         ▼                       ▼                       ▼
-         ├───────────────────────┴───────────────────────┤
-         ▼
-┌─────────────────┐
-│  Tier 3: Hard   │ ◄── Override / Boost (Capped 0.0 - 1.0)
-│   Structure     │
-└────────┬────────┘
-         │
-         ▼
-┌─────────────────┐
-│ Final Verdict   │ ──► [Safe | Suspicious | Malicious]
-└─────────────────┘
+                                 ▼
+                         ┌───────┴───────┐
+                         │ Final Verdict │
+                         └───────────────┘
 ```
 
 ---
 
-## 2. Phase A: Redirect Resolution & Graph Traversal
+## 2. Multi-Tier Classification Engine
 
-Shortened or obfuscated URLs (e.g., `t.co`, `bit.ly`) bypass direct scans by resolving to target sites at client execution time. Phase A follows this redirect chain to ensure the final payload is analyzed.
+Every URL is evaluated through a 4-tier decision cascade. The system exits early at the first tier that produces a definitive safe verdict or proceeds to deeper analysis.
 
-### 2.1 HTTP Redirect Following
-- **Module:** `url_expander.py`
-- **Execution:** Follows HTTP redirects sequentially using a stateful request session.
-- **Constraints & Parameters:**
-  - **Connection Mode:** `GET` request (not `HEAD`, to catch JavaScript & Meta-refresh redirects).
-  - **Redirect Depth:** Maximum 15 hops.
-  - **Timeout:** 2.5 seconds per hop.
-  - **Loop Detection:** Uses a hash set containing all visited URLs. If a duplicate is hit, the traversal aborts immediately to prevent stack overflows.
+### 2.1 Tier 0: Open PageRank Safe Oracle
+- **Module:** `cisco_umbrella.py` (interfacing with Open PageRank API) & `pipeline_bert.py`
+- **Objective:** Fast-path highly authoritative, trusted domains (e.g., google.com, github.com, amazon.com) without running expensive neural inference. PageRank acts as a **safe-side oracle**.
+- **Shortener Resolution (`_resolve_for_pagerank`):**
+  - PageRank only indexes main domains. Shortened URLs (e.g., `fkrt.it`, `amzn.to`, `bit.ly`) inherently have near-zero PageRank because they are redirecting services, not real content hosts.
+  - If a known shortener is detected (via `url_expander.py`), the pipeline follows HTTP redirects (up to 5 hops) to find the **final destination domain** before querying PageRank.
+  - *Note: This expanded URL is ONLY used to verify domain authority with PageRank. DistilBERT always evaluates the original, raw URL to catch obfuscation tricks and tracking garbage.*
+- **Algorithm & Verdict Mapping:**
+  - Extracts the registrable domain and queries Open PageRank.
+  - **OPR $\ge$ 7.0 (Top Authority):** Short-circuits as **SAFE**. DistilBERT is skipped.
+  - **OPR $<$ 7.0 or Not Found:** **UNKNOWN**. Falls through to Tier 1.
+- **Caching:** Results are cached in a thread-safe LRU cache with a 1-hour TTL, as domain authority changes slowly.
 
-### 2.2 Redirect Types Detected
-1.  **HTTP Redirects:** Status codes `301`, `302`, `303`, `307`, and `308`.
-2.  **HTML Meta-Refresh:** Parsed using Regex searching for `<meta http-equiv="refresh" content="... url=...">`.
-3.  **JavaScript Redirects:** Scans HTML bodies for location overrides (`window.location.href`, `document.location.href`).
-4.  **Open Redirect Parameters:** Scans query strings for redirect indicators (`?url=`, `?goto=`, `?redirect=`, `?next=`).
+### 2.2 Tier 1: Local Whitelist & Trusted Suffixes
+- **Module:** `pipeline_bert.py` (`is_whitelisted`), `trusted_suffixes.py`
+- **Objective:** Instantly pass highly popular or institutionally trusted domains offline (~0 ms).
+- **Algorithm:** $O(1)$ Hash Set lookup on domain names and suffix matching.
+- **Rules:**
+  - Exact or subdomain matches against a hardcoded set of top domains (`google.com`, `rvce.edu.in`, `github.com`, etc.).
+  - Institutional suffix matching: Automatically passes trusted global education and government suffixes based on the Mozilla Public Suffix List (e.g., `.gov.in`, `.ac.uk`, `.edu`, `.mil`).
+  - Matched URLs exit immediately as **SAFE**.
 
----
-
-## 3. Phase B: The Multi-Tier Classifier
-
-Every resolved URL is evaluated through a 4-tier decision cascade. The system exits early at the first tier that produces a high-confidence verdict.
-
-### 3.1 Tier 0: Live Threat Intel (URLhaus / Cisco Umbrella)
-- **Module:** `cisco_umbrella.py` (interfacing with abuse.ch URLhaus API)
-- **Objective:** Check if the domain or exact URL matches a registry of active malware distributors.
-- **Verification Cache:** To prevent slowing the classification loop, results are saved in a thread-safe LRU cache dictionary (`_TTLCache`) with a 600-second TTL.
-- **Verdict Mapping:**
-  - `url_status == "online"` (active malware) $\rightarrow$ **MALICIOUS** (Confidence $\ge 75\%$).
-  - `url_status == "offline"` (inactive threat history) $\rightarrow$ **SUSPICIOUS** (Confidence $= 55\%$).
-  - `no_results` $\rightarrow$ **UNKNOWN** (pass through to subsequent tiers).
-
-### 3.2 Tier 1: Local Whitelist
-- **Module:** `pipeline_bert.py` (using `is_whitelisted`)
-- **Objective:** Instantly pass highly popular, trusted institutional domain structures.
-- **Algorithm:** $O(1)$ Hash Set lookup on domain names.
-- **Institutional Rule:** Automatically passes Indian, UK, and Australian government/educational suffixes: `.gov.in`, `.ac.in`, `.edu.in`, `.gov.uk`, `.ac.uk`, `.gov.au`, `.ac.au`.
-
-### 3.3 Tier 2: Neural Transformer (DistilBERT Classifier)
-- **Module:** `pipeline_bert.py` (via `BertPipeline`)
-- **Objective:** Evaluate arbitrary URL strings for lexical, semantic, and structure-spoofing patterns.
-- **Model details:**
-  - **Architecture:** DistilBERT model mapping the `[CLS]` token sequence representation into a 1-dimensional output logit.
-  - **Tokenizer Configuration:** Maximum sequence length set to 128 characters.
-  - **Logit Calibration:** The raw logits are scaled to de-saturate probabilities:
+### 2.3 Tier 2: Neural Transformer (DistilBERT Classifier)
+- **Module:** `pipeline_bert.py` (`_bert_score`)
+- **Objective:** Evaluate arbitrary URL strings for lexical, semantic, and structure-spoofing patterns. Catches zero-day phishing and algorithmic DGA domains that bypass static rules.
+- **Model Details:**
+  - **Architecture:** Fine-tuned DistilBERT base uncased. Maps the `[CLS]` token sequence representation into a 1-dimensional output logit.
+  - **Input:** The **original, unexpanded URL** string (up to 128 tokens).
+  - **Logit Calibration:** Raw logits are scaled to de-saturate probabilities before applying the sigmoid function:
     $$\text{Prob} = \frac{1}{1 + e^{-\text{logit} / 15.0}}$$
-  - **Decision Thresholds:**
+  - **Decision Thresholds (Base):**
     - $\text{Score} < 0.35 \rightarrow$ **SAFE**
-    - $0.35 \le \text{Score} < 0.60 \rightarrow$ **SUSPICIOUS**
-    - $\text{Score} \ge 0.60 \rightarrow$ **MALICIOUS**
+    - $0.35 \le \text{Score} \le 0.60 \rightarrow$ **SUSPICIOUS**
+    - $\text{Score} > 0.60 \rightarrow$ **MALICIOUS**
 
-### 3.4 Tier 3: Hard Signal Supplement
-- **Module:** `pipeline_bert.py` (via `_hard_signal`)
-- **Objective:** Act as a guardrail against false negatives by analyzing the physical URL layout.
-- **Contributions (capped at 1.0):**
-  - **Suspicious TLD:** $+0.40$ (e.g., `.tk`, `.ml`, `.xyz`, `.work`).
-  - **IP Host:** $+0.30$ (IP address used as hostname).
-  - **@ Symbol:** $+0.25$ (credential stuffing obfuscation).
-  - **Brand Spoof:** $+0.35$ (popular brand name matched in subdomain/path but not the root domain).
-  - **Phishing Keywords:** $+ (\text{Keyword Score} \times 0.20)$ (via Horspool table hits).
-  - **Double-Slash Path:** $+0.15$ (presence of `//` inside URL path).
+### 2.4 Tier 3: Rule-based Hard Signal Supplement
+- **Module:** `pipeline_bert.py` (`_hard_signal`)
+- **Objective:** Act as a structural guardrail. It boosts confidence when DistilBERT is uncertain by analyzing physical URL anomalies.
+- **Contributions (accumulated score capped at 1.0):**
+  - **Suspicious TLD:** $+0.40$ (e.g., `.tk`, `.ml`, `.xyz`).
+  - **IP Host:** $+0.30$ (IP address used instead of a hostname).
+  - **@ Symbol:** $+0.25$ (often used in credential stuffing/obfuscation).
+  - **Brand Spoof:** $+0.35$ (popular brand name matched in subdomain or path, but not the root domain).
+  - **Phishing Keywords:** $+ (\text{Keyword Hit Ratio} \times 0.20)$ (e.g., 'login', 'secure', 'banking').
+  - **Double-Slash Path:** $+0.15$ (presence of `//` inside the URL path).
   - **High Entropy:** $+0.10$ (Shannon entropy $> 5.0$).
 - **Calibration Engine:**
-  - **Override (`score >= 0.40`):** Forces malicious status:
-    $$\text{Final Prob} = \max(\text{bert\_prob}, 0.80 + \text{score} \times 0.15)$$
-  - **Boost (`0.20 <= score < 0.40`):** Boosts classifier threshold:
+  - Modifies the DistilBERT probability (`bert_prob`) based on the accumulated `hard_score`.
+  - **Override (`hard_score >= 0.40`):** Strong structural anomalies force a high probability:
+    $$\text{Final Prob} = \max(\text{bert\_prob}, 0.80 + \text{hard\_score} \times 0.15)$$
+  - **Boost (`0.20 <= hard_score < 0.40`):** Moderate anomalies slightly boost the probability:
     $$\text{Final Prob} = \min(1.0, \text{bert\_prob} + 0.12)$$
+  - The final verdict is then decided using the base thresholds ($0.35$ and $0.60$) on this calibrated `Final Prob`.
 
 ---
 
-## 4. Batch Optimization Logic (DAA Funnel)
+## 3. Batch Optimization Logic (DAA Funnel)
 
-For bulk URL scans, invoking DistilBERT is computationally expensive. The system runs a 5-stage DAA preprocessing pipeline to minimize neural model execution.
+For bulk URL scans (Batch DAA Mode), invoking DistilBERT on every URL is computationally expensive. The system runs a multi-stage preprocessing funnel (the DAA Funnel) to filter out known safe or definitively malicious URLs before they reach the neural model.
 
-```
+```text
 [Input URLs] ──► [Stage 0: Quicksort + Dedup] 
                └──► [Stage 1: Whitelist Set] ──► [Exit Safe]
                      └──► [Stage 2: Horspool Keyword] ──► [Exit Malicious]
@@ -132,21 +118,23 @@ For bulk URL scans, invoking DistilBERT is computationally expensive. The system
                                        └──► [DistilBERT (Remaining Uncertain URLs)]
 ```
 
-### 4.1 Stage 0: Divide-and-Conquer Deduplication
+*Note: The batch funnel implements optimized algorithmic techniques (Sorting, Hashing, Boyer-Moore-Horspool, Greedy, Backtracking) to rapidly reduce the workload for the heavy ML inference stage.*
+
+### 3.1 Stage 0: Divide-and-Conquer Deduplication
 - **Algorithm:** Quicksort (Median-of-three pivot) sorts URLs by domain.
 - **Deduplication:** A linear scan removes duplicate domains/URLs, ensuring adjacent records are not scanned twice.
 
-### 4.2 Stage 1: Whitelist Verification
-- Checks the $O(1)$ whitelisted hash-set. Matched URLs exit immediately as **SAFE**.
+### 3.2 Stage 1: Whitelist Verification
+- **Algorithm:** $O(1)$ Hash Set lookup against local whitelists. Matched URLs exit immediately as **SAFE**.
 
-### 4.3 Stage 2: Boyer-Moore-Horspool Keyword Scan
+### 3.3 Stage 2: Boyer-Moore-Horspool Keyword Scan
 - Searches the URL for dangerous keywords using precomputed Horspool character shift tables. High-frequency keyword hits trigger an immediate exit as **MALICIOUS**.
 
-### 4.4 Stage 3: Greedy Knapsack Anomaly Scan
-- Accumulates structural flags greedily. If the accumulated score is $\ge 0.70$, the URL is immediately classified as **MALICIOUS** without reaching the transformer.
+### 3.4 Stage 3: Greedy Knapsack Anomaly Scan
+- Accumulates structural anomaly scores greedily. If the accumulated score exceeds a threshold ($\ge 0.70$), the URL is classified as **MALICIOUS** without reaching the transformer.
 
-### 4.5 Stage 4: Backtracking Feature Selection (Sum-of-Subsets)
-- Solves a 0/1 knapsack constraint to find the most predictive subset of features that fit within a latency budget (e.g. 5ms). Features that exceed the remaining execution budget are pruned.
+### 3.5 Stage 4: Backtracking Feature Selection (Sum-of-Subsets)
+- Solves a 0/1 knapsack constraint to find the most predictive subset of features that fit within a latency budget. Features exceeding the budget are pruned.
 
-### 4.6 Lossless Logging Compression
-- The final batch logs are compressed using greedy **Huffman Coding**. The character occurrences are built into a min-priority queue to yield prefix-free code tables, reducing server disk footprint.
+### 3.6 Lossless Logging Compression (Huffman)
+- Batch logs sent to the client are compressed using greedy **Huffman Coding**. Character frequencies are built into a min-priority queue to yield prefix-free codes, reducing payload size and network latency.
