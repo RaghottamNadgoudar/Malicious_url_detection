@@ -7,9 +7,9 @@ interface UmbrellaTierCardProps {
 }
 
 const STATUS_LABELS: Record<string, string> = {
-  '-1': 'MALICIOUS — in threat DB',
-  '0':  'UNDETERMINED — no record found',
-  '1':  'SAFE — cleared by threat DB',
+  '-1': 'MALICIOUS — flagged by threat DB',
+  '0':  'UNKNOWN — low authority or not indexed',
+  '1':  'SAFE — high PageRank authority',
 };
 
 /** Safe number formatter — never throws on undefined/null */
@@ -56,9 +56,10 @@ export default function UmbrellaTierCard({ umbrella, isDeciding }: UmbrellaTierC
   const verdict   = umbrella?.verdict ?? 'unavailable';
 
   // Detect which backend is active from the source field
-  const isUrlhaus = umbrella?.source === 'urlhaus' || umbrella?.source === 'cached';
-  const tierName  = isUrlhaus ? 'URLhaus Threat Intel' : 'Cisco Umbrella Investigate';
-  const envHint   = isUrlhaus ? 'URL_HAUS_API' : 'UMBRELLA_INVESTIGATE_TOKEN';
+  const isPageRank = umbrella?.source === 'pagerank' || umbrella?.source === 'cached';
+  const isUrlhaus  = umbrella?.source === 'urlhaus';
+  const tierName   = isPageRank ? 'Open PageRank' : isUrlhaus ? 'URLhaus Threat Intel' : 'Cisco Umbrella Investigate';
+  const envHint    = isPageRank ? 'OPEN_PAGERANK_API' : isUrlhaus ? 'URL_HAUS_API' : 'UMBRELLA_INVESTIGATE_TOKEN';
 
   const borderColor = isDeciding
     ? verdict === 'malicious' ? 'border-malicious/40' : 'border-safe/40'

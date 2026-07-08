@@ -4,7 +4,7 @@ import { Layers, Search, Cpu, Zap, Shield, ChevronRight } from 'lucide-react';
 const FEATURES = [
   { icon: Cpu,    text: 'DistilBERT fine-tuned on malicious URL corpus' },
   { icon: Layers, text: '6-stage DAA preprocessing (Quicksort, Horspool, Greedy, Backtrack)' },
-  { icon: Shield, text: 'URLhaus (abuse.ch) threat intelligence (Tier 0 — free)' },
+  { icon: Shield, text: 'Open PageRank safe oracle (Tier 0 — high-authority fast-path)' },
   { icon: Zap,    text: 'Real-time SSE streaming for large batch scans' },
 ];
 
@@ -78,10 +78,10 @@ export default function LandingPage() {
             <h3 className="text-base font-medium text-violet-300 mb-3">Single URL Deep Scan</h3>
             <p className="text-sm text-white/45 leading-relaxed mb-4">
               Trace exactly how one URL is processed through each tier — from
-              URLhaus threat intel to DistilBERT inference and hard-signal scoring.
+              Open PageRank authority check to DistilBERT inference and hard-signal scoring.
             </p>
             <div className="flex flex-wrap gap-1.5">
-              {['T0-URLhaus','T1-Whitelist','T2-DistilBERT','T3-HardSignal'].map(t => (
+              {['T0-PageRank','T1-Whitelist','T2-DistilBERT','T3-HardSignal'].map(t => (
                 <span key={t} className="text-[10px] font-mono px-2 py-0.5 rounded
                                          bg-white/5 border border-white/10 text-white/40">{t}</span>
               ))}

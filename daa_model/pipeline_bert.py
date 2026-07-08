@@ -1,12 +1,13 @@
 """
-pipeline_bert.py — DistilBERT + Cisco Umbrella Malicious URL Pipeline
-======================================================================
+pipeline_bert.py — DistilBERT + Open PageRank Malicious URL Pipeline
+=====================================================================
 Architecture (4-tier, outermost wins):
 
-  Tier 0 — URLhaus (abuse.ch) threat intelligence
-            Real-time malware URL database — instantly blocks known-bad
-            domains/URLs and lets DistilBERT focus on unknowns.
-            Free API; gracefully skipped when Auth-Key is absent/timeout.
+  Tier 0 — Open PageRank safe oracle
+            High-authority domains (PageRank ≥ 7/10) are almost certainly
+            legitimate — short-circuit immediately as safe without DistilBERT.
+            Low/unknown-rank domains fall through to Tier 2.
+            Free API; gracefully skipped when key is absent/timeout.
 
   Tier 1 — Local whitelist + trusted-suffix rules
             Hardcoded safe domains (rvce.edu.in, gov.in, github.com …)
@@ -25,10 +26,10 @@ Usage:
     pipe = BertPipeline()
     result = pipe.classify("http://paypal-secure.tk/login")
 
-URLhaus setup:
+Open PageRank setup:
     Add to daa_model/.env:
-        URLHAUS_AUTH_KEY=<your-key>
-    Get a free key at: https://auth.abuse.ch/
+        OPEN_PAGERANK_API=opr_live_xxxxxxxxxxxxxxxx
+    Get a free key at: https://openpagerank.keywordseverywhere.com/
 """
 
 import os, re, math, zipfile, io, logging
@@ -248,7 +249,7 @@ class BertPipeline:
     """
     4-tier malicious URL detection pipeline.
 
-    Tier 0 — URLhaus (abuse.ch) threat intelligence (free, pre-ML)
+    Tier 0 — Open PageRank safe oracle          (~50–200 ms, skippable)
     Tier 1 — Local whitelist + trusted-suffix rules  (~0 ms)
     Tier 2 — DistilBERT [CLS] classifier             (~18–35 ms)
     Tier 3 — Rule-based hard-signal supplement       (~0 ms)
@@ -262,13 +263,13 @@ class BertPipeline:
     def __init__(self, quiet: bool = False):
         self._quiet = quiet
 
-        # Initialise URLhaus client once (reads URLHAUS_AUTH_KEY from .env)
+        # Initialise PageRank client once (reads OPEN_PAGERANK_API from .env)
         self._umbrella = umbrella.get_client()
         if self._umbrella.available:
-            self._log("Tier-0: URLhaus (abuse.ch) threat intel enabled ✓")
+            self._log("Tier-0: Open PageRank safe oracle enabled ✓")
         else:
-            self._log("Tier-0: URLhaus not configured "
-                      "(add URLHAUS_AUTH_KEY to daa_model/.env to enable).")
+            self._log("Tier-0: Open PageRank not configured "
+                      "(add OPEN_PAGERANK_API to daa_model/.env to enable).")
 
         self._log("Loading DistilBERT classifier...")
         ckpt = _zip_and_load(EXPERT2_DIR)
@@ -312,10 +313,9 @@ class BertPipeline:
         url = url.strip()
         umbrella_result = None
 
-        # ── Tier 0: Cisco Umbrella threat intelligence ────────────────────────
-        # Query the Investigate API for a real-time domain verdict.
-        # If Umbrella is confident → short-circuit immediately (no DistilBERT).
-        # If timeout / no token → transparent fallthrough to Tier 1.
+        # ── Tier 0: Open PageRank safe oracle ────────────────────────────────
+        # PageRank is a SAFE-SIDE oracle: high authority → safe fast-path.
+        # It does NOT flag malicious URLs — unknown/low rank → fall through.
         if self._umbrella.available:
             um = self._umbrella.lookup(url)
             umbrella_result = {
@@ -323,43 +323,29 @@ class BertPipeline:
                 'verdict':    um.verdict,
                 'status':     um.status,
                 'confidence': um.confidence,
-                'categories': list(um.categories.keys())[:8],
+                'categories': um.categories,
                 'security':   um.security,
                 'source':     um.source,
                 'latency_ms': um.latency_ms,
             }
 
-            if um.verdict == 'malicious':
-                # URLhaus has this domain in its threat DB → hard block
+            if um.verdict == 'safe' and um.source not in ('unavailable',):
+                # High PageRank authority → short-circuit as safe
+                opr = um.security.get('open_page_rank', '?')
+                rank = um.security.get('rank', '?')
                 return self._build_result(
                     url,
-                    confidence   = max(um.confidence, 0.90),
-                    bert_prob    = None,
-                    verdict      = 'malicious',
-                    reasoning    = (
-                        f"URLhaus: MALICIOUS (status={um.status}, "
-                        f"conf={um.confidence:.1%}, "
-                        f"tags={list(um.categories.keys())[:3]}). "
-                        f"DistilBERT skipped."
-                    ),
-                    umbrella_result = umbrella_result,
-                )
-
-            if um.verdict == 'safe' and um.source != 'unavailable':
-                # URLhaus explicitly cleared this domain → safe fast-path
-                return self._build_result(
-                    url,
-                    confidence   = 0.02,
+                    confidence   = um.confidence,
                     bert_prob    = None,
                     verdict      = 'safe',
                     reasoning    = (
-                        f"URLhaus: SAFE (not in malware DB). "
-                        f"DistilBERT skipped."
+                        f"PageRank: SAFE — OPR={opr}/10, global rank #{rank}. "
+                        f"High authority domain. DistilBERT skipped."
                     ),
                     umbrella_result = umbrella_result,
                 )
-            # um.verdict == 'unknown' or source == 'unavailable'
-            # → fall through to local tiers
+            # um.verdict == 'unknown' (low/no rank) or unavailable
+            # → fall through to local whitelist + DistilBERT
 
         # ── Tier 1: Local whitelist + trusted-suffix rules ────────────────────
         if is_whitelisted(url):

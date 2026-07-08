@@ -1,5 +1,5 @@
 export type Verdict = 'safe' | 'suspicious' | 'malicious' | 'error';
-export type ExitTier = 'T0-URLhaus' | 'T0-Umbrella' | 'T1-Whitelist' | 'T2-DistilBERT' | 'T3-HardSignal';
+export type ExitTier = 'T0-PageRank' | 'T0-URLhaus' | 'T0-Umbrella' | 'T1-Whitelist' | 'T2-DistilBERT' | 'T3-HardSignal';
 
 // ── Feature set — exact 14-field struct from pipeline_bert._feature_summary ──
 export interface DaaFeatures {
@@ -30,7 +30,7 @@ export interface DaaUmbrellaResult {
   //   URLhaus:  { url_count, online_count, spamhaus_dbl, surbl, url_status? }
   //   Umbrella: { dga_score, spam, fastflux, botnet, securerank2 }
   security: Record<string, unknown>;
-  source:     'urlhaus' | 'umbrella' | 'cached' | 'unavailable';
+  source:     'pagerank' | 'urlhaus' | 'umbrella' | 'cached' | 'unavailable';
   latency_ms: number;
 }
 
