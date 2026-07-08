@@ -144,3 +144,8 @@ test.txt
 *.pt
 *.pt/*
 checkpoints/
+
+walkthrough_daa.md
+
+# Runner scripts
+run.ps1
