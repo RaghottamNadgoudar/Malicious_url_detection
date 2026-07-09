@@ -3,6 +3,7 @@ import Navbar from './components/shared/Navbar';
 import LandingPage from './pages/LandingPage';
 import PipelineOneView from './pages/pipeline1/PipelineOneView';
 import PipelineTwoView from './pages/pipeline2/PipelineTwoView';
+import AnalysisView from './pages/AnalysisView';
 
 export default function App() {
   return (
@@ -13,6 +14,7 @@ export default function App() {
           <Route path="/"          element={<LandingPage />} />
           <Route path="/pipeline1" element={<PipelineOneView />} />
           <Route path="/pipeline2" element={<PipelineTwoView />} />
+          <Route path="/analysis"  element={<AnalysisView />} />
         </Routes>
       </main>
     </div>

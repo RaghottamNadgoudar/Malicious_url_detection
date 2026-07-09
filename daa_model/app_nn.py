@@ -269,3 +269,149 @@ async def batch_optimize_stream(req: BatchStreamRequest):
             'Connection':       'keep-alive',
         },
     )
+
+
+# ── /analysis — pre-computed metrics for both URL datasets ────────────────────
+
+import os as _os
+import math as _math
+import collections as _collections
+import tldextract as _tldextract
+
+_ANALYSIS_CACHE: dict = {}   # in-process cache so re-renders are instant
+
+def _compute_analysis(dataset_key: str, file_path: str) -> dict:
+    """Run both files through the BatchOptimizer (no DistilBERT) and collect metrics."""
+    if dataset_key in _ANALYSIS_CACHE:
+        return _ANALYSIS_CACHE[dataset_key]
+
+    from batch_optimizer import BatchOptimizer
+    from pipeline_bert import _entropy, _keyword_score, _brand_in_subdomain, _parse_domain, SUSPICIOUS_TLDS
+
+    if not _os.path.exists(file_path):
+        return {"error": f"File not found: {file_path}"}
+
+    urls = [u.strip() for u in open(file_path).readlines() if u.strip()]
+
+    t0 = time.time()
+    optimizer = BatchOptimizer(verbose=False)
+    result    = optimizer.process(urls)
+    elapsed   = round((time.time() - t0) * 1000, 1)
+
+    # ── Verdict distribution (pre-classified) ─────────────────────────────────
+    verdict_counts = _collections.Counter(r.verdict for r in result.decided)
+    # Add uncertain as "unresolved" so frontend knows how many went to DistilBERT
+    verdict_counts["pending"] = len(result.uncertain_urls)
+
+    # ── Stage distribution ─────────────────────────────────────────────────────
+    stage_counts = _collections.Counter(r.stage for r in result.decided)
+
+    # ── TLD breakdown ─────────────────────────────────────────────────────────
+    tld_safe = _collections.Counter()
+    tld_mal  = _collections.Counter()
+    for r in result.decided:
+        try:
+            ext = _tldextract.extract(r.url)
+            tld = ext.suffix or "unknown"
+        except Exception:
+            tld = "unknown"
+        if r.verdict == "safe":
+            tld_safe[tld] += 1
+        else:
+            tld_mal[tld] += 1
+
+    # ── URL length histogram (buckets of 20) ──────────────────────────────────
+    len_buckets: dict = _collections.defaultdict(int)
+    for u in urls:
+        bucket = (len(u) // 20) * 20
+        len_buckets[f"{bucket}-{bucket+19}"] += 1
+
+    # ── Confidence distribution (pre-classified) ──────────────────────────────
+    conf_hist = _collections.defaultdict(int)
+    for r in result.decided:
+        bucket = int(r.confidence * 10) * 10
+        conf_hist[f"{bucket}%"] += 1
+
+    # ── Keyword hit frequency ─────────────────────────────────────────────────
+    kw_freq: dict = _collections.Counter()
+    for r in result.decided:
+        for kw in (r.keyword_hits or []):
+            kw_freq[kw] += 1
+
+    # ── Suspicious TLD rate ───────────────────────────────────────────────────
+    susp_count = sum(
+        1 for u in urls
+        if any(f".{t}" in u or u.endswith(f".{t}") for t in list(SUSPICIOUS_TLDS)[:20])
+    )
+
+    # ── https vs http ─────────────────────────────────────────────────────────
+    https_count = sum(1 for u in urls if u.startswith("https://"))
+    http_count  = len(urls) - https_count
+
+    sc = result.stage_counts
+    data = {
+        "dataset":         dataset_key,
+        "total_urls":      len(urls),
+        "elapsed_ms":      elapsed,
+        # Funnel
+        "funnel": {
+            "input":           sc.get("input", len(urls)),
+            "after_dedup":     sc.get("after_dedup", len(urls)),
+            "after_whitelist": sc.get("after_whitelist", 0),
+            "after_horspool":  sc.get("after_horspool", 0),
+            "after_greedy":    sc.get("after_greedy", 0),
+            "to_distilbert":   sc.get("to_distilbert", len(result.uncertain_urls)),
+        },
+        "reduction_pct":      round(result.reduction_pct, 1),
+        "pre_classified":     len(result.decided),
+        "sent_to_distilbert": len(result.uncertain_urls),
+        # Verdict (pre-classified only)
+        "verdict_dist": {
+            "safe":       verdict_counts.get("safe", 0),
+            "malicious":  verdict_counts.get("malicious", 0),
+            "suspicious": verdict_counts.get("suspicious", 0),
+            "pending":    verdict_counts.get("pending", 0),
+        },
+        # Stage breakdown
+        "stage_dist": {k: v for k, v in sorted(stage_counts.items())},
+        # TLD analysis
+        "top_safe_tlds": dict(tld_safe.most_common(10)),
+        "top_mal_tlds":  dict(tld_mal.most_common(10)),
+        # URL length histogram
+        "len_histogram": dict(sorted(len_buckets.items(),
+                              key=lambda x: int(x[0].split("-")[0]))),
+        # Confidence histogram
+        "conf_histogram": dict(conf_hist),
+        # Keyword frequencies
+        "keyword_freq": dict(kw_freq.most_common(15)),
+        # Protocol
+        "protocol": {"https": https_count, "http": http_count},
+        # Suspicious TLD count
+        "suspicious_tld_count": susp_count,
+    }
+
+    _ANALYSIS_CACHE[dataset_key] = data
+    return data
+
+
+@app.get("/analysis")
+def get_analysis():
+    """
+    Returns pre-computed batch-optimizer metrics for both URL datasets.
+    Runs the DAA funnel (no DistilBERT) on both files and returns structured stats.
+    Results are cached in-process — fast on subsequent calls.
+    """
+    base_dir = _os.path.dirname(_os.path.dirname(_os.path.abspath(__file__)))
+    files = {
+        "original":  _os.path.join(base_dir, "urls_1000.txt"),
+        "optimized": _os.path.join(base_dir, "urls_1000_optimized.txt"),
+    }
+    return {k: _compute_analysis(k, p) for k, p in files.items()}
+
+
+@app.delete("/analysis/cache")
+def clear_analysis_cache():
+    """Clear the in-process analysis cache so next /analysis call recomputes."""
+    _ANALYSIS_CACHE.clear()
+    return {"cleared": True}
+

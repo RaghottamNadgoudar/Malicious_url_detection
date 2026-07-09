@@ -2,9 +2,10 @@ import { Link, useLocation } from 'react-router-dom';
 import { Shield, Layers, Search, Activity } from 'lucide-react';
 
 const navLinks = [
-  { to: '/',          label: 'Home',         icon: Shield },
-  { to: '/pipeline1', label: 'Batch DAA',    icon: Layers },
-  { to: '/pipeline2', label: 'Deep Scan',    icon: Search },
+  { to: '/',          label: 'Home',      icon: Shield },
+  { to: '/pipeline1', label: 'Batch DAA', icon: Layers },
+  { to: '/pipeline2', label: 'Deep Scan', icon: Search },
+  { to: '/analysis',  label: 'Analysis',  icon: Activity },
 ];
 
 export default function Navbar() {
