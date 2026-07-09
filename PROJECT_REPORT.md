@@ -30,6 +30,7 @@ The Tier 1 Batch Optimizer implements several classical algorithms corresponding
 *   **Unit III (Space-Time Tradeoffs):** Employs the **Boyer-Moore-Horspool** algorithm for sub-linear string searching to rapidly scan URLs against a database of known phishing keywords.
 *   **Unit IV (Greedy Techniques & Huffman):** Uses a **Greedy Strategy** to accumulate fractional structural suspicion scores (e.g., presence of IP addresses, suspicious TLDs, high entropy). It also uses **Huffman Coding** to compress audit logs.
 *   **Unit V (Backtracking):** Implements a **Sum-of-Subsets Backtracking** algorithm to select the optimal subset of feature extraction modules that fit within a strict time budget constraint.
+*   **Graph Traversal (BFS/DFS):** Applies Graph concepts to resolve and traverse URL redirect chains and shorteners. Treating redirects as directed edges, the system uses iterative graph traversal to trace shortened URLs to their final destination before applying lexical analysis, thereby thwarting obfuscation attempts.
 
 ### Pipeline Architecture Flowchart
 
